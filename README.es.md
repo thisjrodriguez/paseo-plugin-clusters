@@ -9,6 +9,8 @@ círculos encima de la lista de workspaces, al estilo de los servidores de Disco
 paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 ```
 
+![Los círculos de cluster encima de la lista de workspaces de Paseo](docs/sidebar.png)
+
 ## Qué hace
 
 - **Círculos en la barra lateral.** Una fila encima de «Nuevo espacio de trabajo». Al pulsar un

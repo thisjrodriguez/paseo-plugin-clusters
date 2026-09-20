@@ -9,6 +9,8 @@ circles above the workspace list, Discord-style.
 paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 ```
 
+![Cluster circles above the Paseo workspace list](docs/sidebar.png)
+
 ## What it does
 
 - **Circles in the sidebar.** A row above "New workspace". Selecting a cluster filters the native
