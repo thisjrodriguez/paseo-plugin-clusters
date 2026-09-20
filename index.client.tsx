@@ -1,5 +1,6 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { ClustersSurface } from "./client/clusters";
+import { t } from "./client/web";
 import { readState, writeState } from "./shared/storage";
 import { type WorkspaceStatus, isWeb, removeWorkspace, startSync, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
 
@@ -31,13 +32,13 @@ export default function contribute(client: PluginClientContext) {
   client.addSurface("clusters", ClustersSurface);
   client.addSidebarItem({
     id: "clusters",
-    title: "Clusters",
+    title: t().sidebarItem,
     icon: "LayoutGrid",
     surface: "clusters",
   });
   client.addCommandCenterItem({
     id: "open-clusters",
-    title: "Gestionar clusters de proyectos",
+    title: t().commandOpen,
     icon: "LayoutGrid",
     context: "global",
     onSelect({ openSurface }) {
@@ -64,7 +65,7 @@ export default function contribute(client: PluginClientContext) {
       const { entries } = await client.paseo.workspaces.list();
       for (const w of entries) recordWorkspace(w);
     } catch (error) {
-      console.warn("[paseo-clusters] No se pudo leer la actividad de workspaces", error);
+      console.warn("[paseo-clusters] Could not read workspace activity", error);
     }
   };
 
@@ -88,7 +89,7 @@ export default function contribute(client: PluginClientContext) {
       release = () => result.subscription.release();
       if (released) void release();
     })
-    .catch((error: unknown) => console.warn("[paseo-clusters] Sin suscripción en vivo", error));
+    .catch((error: unknown) => console.warn("[paseo-clusters] No live subscription", error));
 
   const timer = setInterval(() => void resync(), RESYNC_MS);
 

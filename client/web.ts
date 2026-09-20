@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { LANGUAGES, type Language, type LanguagePreference, type Strings } from "../shared/i18n";
 
 // Desktop/web only: the native sidebar is manipulated through the DOM.
 // This plugin typechecks without the DOM library. Declare only what this module uses.
@@ -48,6 +49,7 @@ declare const document: {
   querySelectorAll(selector: string): ArrayLike<El>;
 };
 declare const localStorage: { getItem(k: string): string | null; setItem(k: string, v: string): void };
+declare const navigator: { readonly language?: string; readonly languages?: readonly string[] };
 declare class MutationObserver {
   constructor(cb: () => void);
   observe(target: El, options: { childList: boolean; subtree: boolean }): void;
@@ -91,6 +93,39 @@ const STORAGE_KEY = "paseo-clusters:v1";
 const ROW_PREFIX = "sidebar-project-row-";
 const BAR_ID = "paseo-clusters-bar";
 const SYNC_POLL_MS = 5000;
+const LANGUAGE_KEY = "paseo-clusters:language";
+
+function systemLanguage(): Language {
+  if (!isWeb) return "en";
+  const tags = navigator.languages ?? (navigator.language ? [navigator.language] : []);
+  return tags.some((tag) => tag.toLowerCase().startsWith("es")) ? "es" : "en";
+}
+
+let languagePreference: LanguagePreference = readLanguagePreference();
+
+function readLanguagePreference(): LanguagePreference {
+  if (!isWeb) return "auto";
+  const stored = localStorage.getItem(LANGUAGE_KEY);
+  return stored === "en" || stored === "es" ? stored : "auto";
+}
+
+export function getLanguagePreference(): LanguagePreference {
+  return languagePreference;
+}
+
+export function setLanguagePreference(next: LanguagePreference): void {
+  languagePreference = next;
+  if (isWeb) localStorage.setItem(LANGUAGE_KEY, next);
+  const bar = document.querySelector(`#${BAR_ID}`);
+  if (bar && barOnAdd) renderBar(bar, barOnAdd);
+  for (const listener of listeners) listener();
+}
+
+/** Strings for the active language: the user's choice, or the client's own language. */
+export function t(): Strings {
+  return LANGUAGES[languagePreference === "auto" ? systemLanguage() : languagePreference];
+}
+
 export const ALL_ID = "__all__";
 
 /** Clusters live on the daemon so every client of that host shares them. */
@@ -110,6 +145,7 @@ let state: ClusterState = load();
 let revision = 0;
 let sync: ClusterSync | null = null;
 let pushTimer: number | null = null;
+let barOnAdd: (() => void) | null = null;
 const listeners = new Set<() => void>();
 
 function dedupe(clusters: Cluster[]): Cluster[] {
@@ -144,7 +180,7 @@ function push(): void {
     pushTimer = null;
     const shared: SharedState = { clusters: state.clusters, recentOrder: state.recentOrder, revision };
     void sync?.write(shared).catch((error: unknown) => {
-      console.warn("[paseo-clusters] No se pudo guardar en el daemon", error);
+      console.warn("[paseo-clusters] Could not save to the daemon", error);
     });
   }, 300);
 }
@@ -174,7 +210,7 @@ export function startSync(bridge: ClusterSync): () => void {
       if (shared) adopt(shared);
       else if (state.clusters.length > 0) push();
     } catch (error) {
-      console.warn("[paseo-clusters] No se pudo leer del daemon", error);
+      console.warn("[paseo-clusters] Could not read from the daemon", error);
     }
   };
   void pull();
@@ -617,7 +653,7 @@ function renderBar(bar: El, onAdd: () => void): void {
   const setActive = (id: string | null) => setState({ ...state, active: id });
   bar.replaceChildren(
     circle({
-      label: "Recientes de mis clusters",
+      label: t().recentsTooltip,
       ringKey: "recent",
       active: state.active === null,
       onClick: () => setActive(null),
@@ -628,7 +664,7 @@ function renderBar(bar: El, onAdd: () => void): void {
       circle({
         label: c.name,
         clusterId: c.id,
-        tooltipText: `${c.name} · ${c.projects.length} ${c.projects.length === 1 ? "proyecto" : "proyectos"}`,
+        tooltipText: `${c.name} · ${t().clusterProjects(c.projects.length)}`,
         active: c.id === state.active,
         onClick: () => setActive(c.id),
         text: clusterIcon(c),
@@ -636,14 +672,14 @@ function renderBar(bar: El, onAdd: () => void): void {
       }),
     ),
     circle({
-      label: "Todos los proyectos",
+      label: t().allLabel,
       active: state.active === ALL_ID,
       onClick: () => setActive(ALL_ID),
       svg: LAYERS_SVG,
       style: { background: "#e4e4e7", color: "#52525b" },
     }),
     circle({
-      label: "Crear y editar clusters",
+      label: t().manageLabel,
       active: false,
       onClick: onAdd,
       svg: PLUS_SVG,
@@ -653,6 +689,7 @@ function renderBar(bar: El, onAdd: () => void): void {
   updateRings();
 }
 function mountBar(onAdd: () => void): El | null {
+  barOnAdd = onAdd;
   const existing = document.querySelector(`#${BAR_ID}`);
   if (existing) return existing;
   const newButton = document.querySelector('[data-testid="sidebar-global-new-workspace"]');
@@ -996,7 +1033,7 @@ function startProjectDrag(): () => void {
       setDropHighlight(hovered, false);
       setDropHighlight(over, true);
       hovered = over;
-      if (over) showTooltip(over, `Mover a ${over.getAttribute("aria-label") ?? "cluster"}`);
+      if (over) showTooltip(over, t().moveTo(over.getAttribute("aria-label") ?? "cluster"));
       else hideTooltip();
     }
   };
@@ -1020,7 +1057,7 @@ function startProjectDrag(): () => void {
     }
     const moved = moveProjectToCluster(key, clusterId);
     const fresh = document.querySelector(`[data-cluster-id="${clusterId}"]`) ?? over;
-    if (moved) flash(fresh, `Movido a ${moved.name}`);
+    if (moved) flash(fresh, t().movedTo(moved.name));
   };
 
   // Window capture runs before any listener Paseo registers, for every input type its drag may use.

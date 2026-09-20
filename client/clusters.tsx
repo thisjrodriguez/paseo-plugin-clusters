@@ -13,6 +13,7 @@ import {
   moveProjectToCluster,
   setState,
   subscribe,
+  t,
 } from "./web";
 import { ClusterForm, type ClusterDraft } from "./cluster-form";
 
@@ -27,6 +28,7 @@ function projectKey(serverId: string, projectId: string): string {
 
 export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfaceProps) {
   const state = useSyncExternalStore(subscribe, getState);
+  const strings = t();
   const [tab, setTab] = useState<string>(state.active && state.active !== ALL_TAB ? state.active : ALL_TAB);
   const [form, setForm] = useState<"create" | "edit" | null>(null);
   const [query, setQuery] = useState("");
@@ -165,7 +167,7 @@ export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfa
     <Pressable
       key={target?.id ?? "none"}
       accessibilityRole="button"
-      accessibilityLabel={target ? `Mover a ${target.name}` : "Quitar del cluster"}
+      accessibilityLabel={target ? strings.moveTo(target.name) : strings.removeFromCluster}
       disabled={isCurrent}
       onPress={() => moveProjectToCluster(key, target?.id ?? null)}
       style={{
@@ -182,7 +184,7 @@ export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfa
     >
       {target ? <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: target.color }} /> : null}
       <Text style={{ color: isCurrent ? c.foreground : c.foregroundMuted, fontSize: 12 }}>
-        {target ? target.name : "Sin cluster"}
+        {target ? target.name : strings.noCluster}
       </Text>
     </Pressable>
   );
@@ -199,7 +201,7 @@ export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfa
     <Pressable
       key={w.id}
       accessibilityRole="button"
-      accessibilityLabel={`Abrir ${w.title || w.name}`}
+      accessibilityLabel={strings.openWorkspace(w.title || w.name)}
       disabled={!navigation}
       onPress={() => navigation?.openWorkspace({ workspaceId: w.id })}
       style={{
@@ -251,8 +253,8 @@ export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfa
         <ClusterForm
           key={editing?.id ?? "new"}
           theme={theme}
-          title={editing ? `Editar ${editing.name}` : "Nuevo cluster"}
-          submitLabel={editing ? "Guardar" : "Crear cluster"}
+          title={editing ? strings.formEdit(editing.name) : strings.formNew}
+          submitLabel={editing ? strings.save : strings.create}
           initial={editing ?? { name: "", color: COLORS[state.clusters.length % COLORS.length] }}
           onCancel={() => setForm(null)}
           onSubmit={(draft) => {
@@ -267,26 +269,25 @@ export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfa
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.body}>
-      <Text style={styles.title}>Clusters</Text>
+      <Text style={styles.title}>{strings.title}</Text>
       <Text style={styles.muted}>
-        Cada proyecto pertenece a un solo cluster. Pulsa un cluster en una fila para moverlo allí, o arrástralo desde la
-        barra lateral hasta su círculo.
+{isWeb ? strings.intro : strings.mobileNotice}
       </Text>
 
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
         <View style={[styles.rowWrap, { flex: 1 }]}>
-          {tabButton(ALL_TAB, "Todos", null, projects.length)}
+          {tabButton(ALL_TAB, strings.allTab, null, projects.length)}
           {state.clusters.map((cl) => tabButton(cl.id, cl.name, cl.color, cl.projects.length, clusterIcon(cl)))}
         </View>
         <Pressable accessibilityRole="button" style={styles.button} onPress={() => setForm("create")}>
-          <Text style={styles.buttonText}>+ Nuevo cluster</Text>
+          <Text style={styles.buttonText}>{strings.newCluster}</Text>
         </Pressable>
       </View>
 
       <View style={styles.rowWrap}>
         <TextInput
           style={styles.input}
-          placeholder="Buscar proyecto…"
+          placeholder={strings.searchPlaceholder}
           placeholderTextColor={c.foregroundMuted}
           value={query}
           onChangeText={setQuery}
@@ -296,7 +297,7 @@ export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfa
           style={styles.ghost}
           onPress={() => (isWeb ? setSidebarProjects(listSidebarProjects()) : void projectsQuery.refetch())}
         >
-          <Text style={styles.text}>Actualizar lista</Text>
+          <Text style={styles.text}>{strings.refresh}</Text>
         </Pressable>
       </View>
 
@@ -306,16 +307,16 @@ export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfa
             <Text style={styles.title}>{current.name}</Text>
             <View style={styles.rowWrap}>
               <Pressable accessibilityRole="button" style={styles.ghost} onPress={() => setForm("edit")}>
-                <Text style={styles.text}>Editar</Text>
+                <Text style={styles.text}>{strings.edit}</Text>
               </Pressable>
               <Pressable accessibilityRole="button" style={styles.ghost} onPress={deleteCluster}>
-                <Text style={styles.text}>Borrar cluster</Text>
+                <Text style={styles.text}>{strings.deleteCluster}</Text>
               </Pressable>
             </View>
           </View>
           {inCurrent.length === 0 ? (
             <Text style={styles.muted}>
-              {needle ? "Ningún proyecto coincide." : "Sin proyectos. Añádelos desde la pestaña Todos."}
+              {needle ? strings.noMatches : strings.emptyCluster}
             </Text>
           ) : null}
           {inCurrent.map(projectRow)}
@@ -323,11 +324,11 @@ export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfa
       ) : (
         <>
           {projects.length === 0 ? (
-            <Text style={styles.muted}>No encuentro proyectos en la barra lateral. Ábrela y pulsa “Actualizar lista”.</Text>
+            <Text style={styles.muted}>{strings.noProjects}</Text>
           ) : null}
-          <Text style={styles.section}>SIN CLUSTER · {unassigned.length}</Text>
+          <Text style={styles.section}>{strings.withoutCluster} · {unassigned.length}</Text>
           {unassigned.map(projectRow)}
-          <Text style={styles.section}>CON CLUSTER · {assigned.length}</Text>
+          <Text style={styles.section}>{strings.withCluster} · {assigned.length}</Text>
           {assigned.map(projectRow)}
         </>
       )}

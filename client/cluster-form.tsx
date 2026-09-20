@@ -1,7 +1,7 @@
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useMemo, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
-import { type Cluster, clusterIcon } from "./web";
+import { type Cluster, clusterIcon, getLanguagePreference, setLanguagePreference, t } from "./web";
 
 type PluginTheme = PluginSurfaceProps["theme"];
 
@@ -37,6 +37,7 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
   const [color, setColor] = useState(initial.color);
   const [hex, setHex] = useState(initial.color);
 
+  const strings = t();
   const c = theme.colors;
   const styles = useMemo(
     () => ({
@@ -94,10 +95,10 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
       </View>
 
       <View style={{ gap: 6 }}>
-        <Text style={styles.label}>NOMBRE</Text>
+        <Text style={styles.label}>{strings.name}</Text>
         <TextInput
           style={styles.input}
-          placeholder="Ej. Nicalia"
+          placeholder={strings.namePlaceholder}
           placeholderTextColor={c.foregroundMuted}
           value={name}
           onChangeText={setName}
@@ -107,7 +108,7 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
       </View>
 
       <View style={{ gap: 6 }}>
-        <Text style={styles.label}>ICONO · letra, emoji o símbolo (vacío = inicial del nombre)</Text>
+        <Text style={styles.label}>{strings.icon}</Text>
         <TextInput
           style={[styles.input, { width: 120, fontSize: 18, textAlign: "center" }]}
           placeholder={preview}
@@ -120,7 +121,7 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
             <Pressable
               key={value}
               accessibilityRole="button"
-              accessibilityLabel={`Icono ${value}`}
+              accessibilityLabel={value}
               onPress={() => setIcon(value)}
               style={{
                 width: 32,
@@ -140,13 +141,13 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
       </View>
 
       <View style={{ gap: 6 }}>
-        <Text style={styles.label}>FONDO</Text>
+        <Text style={styles.label}>{strings.background}</Text>
         <View style={styles.wrap}>
           {PALETTE.map((value) => (
             <Pressable
               key={value}
               accessibilityRole="button"
-              accessibilityLabel={`Color ${value}`}
+              accessibilityLabel={value}
               onPress={() => pickColor(value)}
               style={{
                 width: 26,
@@ -170,8 +171,37 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
             autoCapitalize="none"
           />
           <Text style={{ color: HEX.test(hex) ? c.foregroundMuted : c.statusDanger, fontSize: 12 }}>
-            {HEX.test(hex) ? "Cualquier color en hex" : "Formato: #RRGGBB"}
+            {HEX.test(hex) ? strings.anyHex : strings.hexFormat}
           </Text>
+        </View>
+      </View>
+
+      <View style={{ gap: 6 }}>
+        <Text style={styles.label}>{strings.language}</Text>
+        <View style={styles.wrap}>
+          {(["auto", "en", "es"] as const).map((value) => {
+            const selected = getLanguagePreference() === value;
+            return (
+              <Pressable
+                key={value}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                onPress={() => setLanguagePreference(value)}
+                style={{
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  borderRadius: 6,
+                  borderWidth: 1,
+                  borderColor: selected ? c.foreground : c.border,
+                  backgroundColor: selected ? c.surface2 : "transparent",
+                }}
+              >
+                <Text style={styles.text}>
+                  {value === "auto" ? strings.languageAuto : value === "en" ? "English" : "Español"}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
       </View>
 
@@ -185,7 +215,7 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
           <Text style={styles.buttonText}>{submitLabel}</Text>
         </Pressable>
         <Pressable accessibilityRole="button" style={styles.ghost} onPress={onCancel}>
-          <Text style={styles.text}>Cancelar</Text>
+          <Text style={styles.text}>{strings.cancel}</Text>
         </Pressable>
       </View>
     </View>
