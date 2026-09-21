@@ -110,10 +110,14 @@ function readLanguagePreference(): LanguagePreference {
 }
 
 export function getLanguagePreference(): LanguagePreference {
+  const other = otherOwner();
+  if (other) return other.getLanguagePreference();
   return languagePreference;
 }
 
 export function setLanguagePreference(next: LanguagePreference): void {
+  const other = otherOwner();
+  if (other) return other.setLanguagePreference(next);
   languagePreference = next;
   if (isWeb) localStorage.setItem(LANGUAGE_KEY, next);
   const bar = document.querySelector(`#${BAR_ID}`);
@@ -123,6 +127,8 @@ export function setLanguagePreference(next: LanguagePreference): void {
 
 /** Strings for the active language: the user's choice, or the client's own language. */
 export function t(): Strings {
+  const other = otherOwner();
+  if (other) return other.t();
   return LANGUAGES[languagePreference === "auto" ? systemLanguage() : languagePreference];
 }
 
@@ -143,7 +149,8 @@ export interface SharedState {
 
 let state: ClusterState = load();
 let revision = 0;
-let sync: ClusterSync | null = null;
+/** One bridge per connected daemon; every one of them stores a full copy. */
+const syncs = new Set<ClusterSync>();
 let pushTimer: number | null = null;
 let barOnAdd: (() => void) | null = null;
 const listeners = new Set<() => void>();
@@ -175,13 +182,15 @@ function sameShared(a: ClusterState, b: ClusterState): boolean {
 }
 
 function push(): void {
-  if (!sync || pushTimer !== null) return;
+  if (syncs.size === 0 || pushTimer !== null) return;
   pushTimer = setTimeout(() => {
     pushTimer = null;
     const shared: SharedState = { clusters: state.clusters, recentOrder: state.recentOrder, revision };
-    void sync?.write(shared).catch((error: unknown) => {
-      console.warn("[paseo-clusters] Could not save to the daemon", error);
-    });
+    for (const bridge of syncs) {
+      void bridge.write(shared).catch((error: unknown) => {
+        console.warn("[paseo-clusters] Could not save to the daemon", error);
+      });
+    }
   }, 300);
 }
 
@@ -201,13 +210,18 @@ function adopt(shared: SharedState): void {
 
 /** Connects the store to the daemon: initial read, periodic refresh, and write-through. */
 export function startSync(bridge: ClusterSync): () => void {
-  sync = bridge;
+  const other = otherOwner();
+  if (other) return other.startSync(bridge);
+  syncs.add(bridge);
   let stopped = false;
   const pull = async () => {
     try {
       const shared = await bridge.read();
       if (stopped) return;
-      if (shared) adopt(shared);
+      // Newest copy wins; a daemon that is behind (or empty) receives ours. An empty copy never
+      // replaces real clusters, so a freshly connected daemon cannot wipe them.
+      const emptyOverFull = shared !== null && shared.clusters.length === 0 && state.clusters.length > 0;
+      if (shared && shared.revision >= revision && !emptyOverFull) adopt(shared);
       else if (state.clusters.length > 0) push();
     } catch (error) {
       console.warn("[paseo-clusters] Could not read from the daemon", error);
@@ -218,15 +232,19 @@ export function startSync(bridge: ClusterSync): () => void {
   return () => {
     stopped = true;
     clearInterval(timer);
-    sync = null;
+    syncs.delete(bridge);
   };
 }
 
 export function getState(): ClusterState {
+  const other = otherOwner();
+  if (other) return other.getState();
   return state;
 }
 
 export function setState(next: ClusterState): void {
+  const other = otherOwner();
+  if (other) return other.setState(next);
   const changed = !sameShared(state, next);
   state = next;
   if (changed) revision += 1;
@@ -236,6 +254,8 @@ export function setState(next: ClusterState): void {
 }
 
 export function subscribe(listener: () => void): () => void {
+  const other = otherOwner();
+  if (other) return other.subscribe(listener);
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
@@ -294,6 +314,8 @@ function scheduleFilter(): void {
 }
 
 export function setWorkspaceActivity(id: string, next: WorkspaceActivity): void {
+  const other = otherOwner();
+  if (other) return other.setWorkspaceActivity(id, next);
   const current = activity.get(id);
   const status = next.status === undefined ? current?.status : next.status;
   if (
@@ -313,11 +335,15 @@ export function setWorkspaceActivity(id: string, next: WorkspaceActivity): void 
 }
 
 export function touchWorkspace(id: string, at: number): void {
+  const other = otherOwner();
+  if (other) return other.touchWorkspace(id, at);
   const current = activity.get(id);
   setWorkspaceActivity(id, { at, projectPath: current?.projectPath ?? "", status: current?.status });
 }
 
 export function removeWorkspace(id: string): void {
+  const other = otherOwner();
+  if (other) return other.removeWorkspace(id);
   if (activity.delete(id)) scheduleFilter();
 }
 
@@ -725,6 +751,8 @@ function flash(anchor: El, text: string): void {
 
 /** Moves a project into one cluster (removing it from the rest), or out of all of them with `null`. */
 export function moveProjectToCluster(key: string, clusterId: string | null): Cluster | null {
+  const other = otherOwner();
+  if (other) return other.moveProjectToCluster(key, clusterId);
   const target = state.clusters.find((c) => c.id === clusterId) ?? null;
   if (clusterId !== null && !target) return null;
   setState({
@@ -1084,7 +1112,28 @@ function startProjectDrag(): () => void {
 
 /** Injects the cluster bar into the native sidebar and keeps the project filter applied. */
 export function startSidebarClusters(onAdd: () => void): () => void {
+  const other = otherOwner();
+  if (other) return other.startSidebarClusters(onAdd);
   if (!isWeb) return () => {};
+  sidebarUsers += 1;
+  if (sidebarUsers > 1) return releaseSidebar;
+  stopSidebar = runSidebar(onAdd);
+  return releaseSidebar;
+}
+
+let sidebarUsers = 0;
+let stopSidebar: (() => void) | null = null;
+
+function releaseSidebar(): void {
+  if (sidebarUsers === 0) return;
+  sidebarUsers -= 1;
+  if (sidebarUsers > 0) return;
+  stopSidebar?.();
+  stopSidebar = null;
+  releaseOwnership();
+}
+
+function runSidebar(onAdd: () => void): () => void {
   let scheduled = false;
   const sync = () => {
     scheduled = false;
@@ -1128,3 +1177,56 @@ export function startSidebarClusters(onAdd: () => void): () => void {
 }
 
 
+
+/**
+ * Paseo loads one copy of this plugin per connected daemon, all in the same page. The first copy
+ * owns the sidebar and the store; later copies hand their calls (and their daemon) to it.
+ */
+interface Owner {
+  getLanguagePreference: typeof getLanguagePreference;
+  setLanguagePreference: typeof setLanguagePreference;
+  t: typeof t;
+  getState: typeof getState;
+  setState: typeof setState;
+  subscribe: typeof subscribe;
+  startSync: typeof startSync;
+  setWorkspaceActivity: typeof setWorkspaceActivity;
+  touchWorkspace: typeof touchWorkspace;
+  removeWorkspace: typeof removeWorkspace;
+  moveProjectToCluster: typeof moveProjectToCluster;
+  startSidebarClusters: typeof startSidebarClusters;
+}
+
+const OWNER_KEY = "__paseoClustersOwner";
+let self: Owner | null = null;
+
+function ownerSlot(): { [OWNER_KEY]?: Owner } {
+  return globalThis as unknown as { [OWNER_KEY]?: Owner };
+}
+
+/** The copy that owns the page, or null when it is this one (claiming the slot if it is free). */
+function otherOwner(): Owner | null {
+  if (!isWeb) return null;
+  self ??= {
+    getLanguagePreference,
+    setLanguagePreference,
+    t,
+    getState,
+    setState,
+    subscribe,
+    startSync,
+    setWorkspaceActivity,
+    touchWorkspace,
+    removeWorkspace,
+    moveProjectToCluster,
+    startSidebarClusters,
+  };
+  const slot = ownerSlot();
+  if (!slot[OWNER_KEY]) slot[OWNER_KEY] = self;
+  return slot[OWNER_KEY] === self ? null : (slot[OWNER_KEY] ?? null);
+}
+
+function releaseOwnership(): void {
+  const slot = ownerSlot();
+  if (self && slot[OWNER_KEY] === self) delete slot[OWNER_KEY];
+}

@@ -1,16 +1,16 @@
 {
-  "name": "paseo-plugin-clusters",
-  "private": true,
+  "name": "@thisjrodriguez/paseo-plugin-clusters",
   "version": "0.1.0",
   "files": [
     "paseo-plugin.json",
-    "index.client.ts",
     "index.client.tsx",
     "index.server.ts",
-    "index.server.tsx",
     "client/",
     "server/",
-    "shared/"
+    "shared/",
+    "README.md",
+    "README.es.md",
+    "docs/"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -30,5 +30,12 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/thisjrodriguez/paseo-plugin-clusters.git"
-  }
+  },
+  "keywords": [
+    "paseo",
+    "paseo-plugin",
+    "clusters",
+    "workspaces",
+    "sidebar"
+  ]
 }
