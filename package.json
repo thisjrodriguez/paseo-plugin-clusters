@@ -10,7 +10,7 @@
     "shared/",
     "README.md",
     "README.es.md",
-    "docs/"
+    "images/"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit"
