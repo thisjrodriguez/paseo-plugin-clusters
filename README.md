@@ -5,11 +5,13 @@
 A [Paseo](https://paseo.sh) plugin that groups your projects into **clusters** and puts them as
 circles above the workspace list, Discord-style.
 
+## Installation
+
 ```bash
 paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 ```
 
-![Cluster circles above the Paseo workspace list](docs/sidebar.png)
+![Cluster circles above the Paseo workspace list](images/sidebar.png)
 
 ## What it does
 
@@ -29,7 +31,7 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
   The selected circle stays per client.
 - **English and Spanish**, following the client's language, with a picker in the cluster form.
 
-## Requirements and limits
+## Limitations
 
 - Paseo **0.8.0** or newer.
 - **Desktop only.** The circles are injected into the app's web UI, so they do not appear on iOS or

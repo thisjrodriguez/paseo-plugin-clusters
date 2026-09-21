@@ -5,11 +5,13 @@
 Plugin para [Paseo](https://paseo.sh) que agrupa tus proyectos en **clusters** y los pone como
 círculos encima de la lista de workspaces, al estilo de los servidores de Discord.
 
+## Instalación
+
 ```bash
 paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 ```
 
-![Los círculos de cluster encima de la lista de workspaces de Paseo](docs/sidebar.png)
+![Los círculos de cluster encima de la lista de workspaces de Paseo](images/sidebar.png)
 
 ## Qué hace
 
@@ -28,7 +30,7 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 - **Sincronizado.** Los clusters se guardan en el daemon, así que son los mismos desde cualquier
   cliente conectado a ese equipo. La vista seleccionada es de cada cliente.
 
-## Requisitos y límites
+## Limitaciones
 
 - Paseo **0.8.0** o superior.
 - **Solo escritorio.** Los círculos se inyectan en la interfaz web de la app, así que en iOS y
