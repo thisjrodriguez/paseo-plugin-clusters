@@ -1,6 +1,6 @@
 {
   "name": "@thisjrodriguez/paseo-plugin-clusters",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "files": [
     "paseo-plugin.json",
     "index.client.tsx",
