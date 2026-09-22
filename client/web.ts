@@ -87,12 +87,17 @@ export interface ClusterState {
   active: string | null;
   /** Manual order of "Recientes": new projects enter on top, existing ones keep their place. */
   recentOrder?: string[];
+  /** How long a project stays in Recents, in hours (1–48, default 24). */
+  recentHours?: number;
 }
 
 const STORAGE_KEY = "paseo-clusters:v1";
 const ROW_PREFIX = "sidebar-project-row-";
 const BAR_ID = "paseo-clusters-bar";
 const SYNC_POLL_MS = 5000;
+export const DEFAULT_RECENT_HOURS = 24;
+export const MIN_RECENT_HOURS = 1;
+export const MAX_RECENT_HOURS = 48;
 const LANGUAGE_KEY = "paseo-clusters:language";
 
 function systemLanguage(): Language {
@@ -144,6 +149,7 @@ export interface ClusterSync {
 export interface SharedState {
   clusters: Cluster[];
   recentOrder?: string[];
+  recentHours?: number;
   revision: number;
 }
 
@@ -177,7 +183,8 @@ function load(): ClusterState {
 function sameShared(a: ClusterState, b: ClusterState): boolean {
   return (
     JSON.stringify(a.clusters) === JSON.stringify(b.clusters) &&
-    JSON.stringify(a.recentOrder ?? []) === JSON.stringify(b.recentOrder ?? [])
+    JSON.stringify(a.recentOrder ?? []) === JSON.stringify(b.recentOrder ?? []) &&
+    (a.recentHours ?? DEFAULT_RECENT_HOURS) === (b.recentHours ?? DEFAULT_RECENT_HOURS)
   );
 }
 
@@ -185,7 +192,12 @@ function push(): void {
   if (syncs.size === 0 || pushTimer !== null) return;
   pushTimer = setTimeout(() => {
     pushTimer = null;
-    const shared: SharedState = { clusters: state.clusters, recentOrder: state.recentOrder, revision };
+    const shared: SharedState = {
+      clusters: state.clusters,
+      recentOrder: state.recentOrder,
+      recentHours: state.recentHours,
+      revision,
+    };
     for (const bridge of syncs) {
       void bridge.write(shared).catch((error: unknown) => {
         console.warn("[paseo-clusters] Could not save to the daemon", error);
@@ -202,6 +214,7 @@ function adopt(shared: SharedState): void {
   state = {
     clusters: dedupe(shared.clusters),
     recentOrder: shared.recentOrder,
+    recentHours: shared.recentHours,
     active: active !== null && active !== ALL_ID && !shared.clusters.some((c) => c.id === active) ? null : active,
   };
   if (isWeb) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -355,7 +368,10 @@ function projectPathOfKey(key: string): string {
   return key.startsWith("host:") ? key.replace(/^host:[^:]+:/, "").toLowerCase() : "";
 }
 
-const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
+export function recentHours(): number {
+  const hours = getState().recentHours ?? DEFAULT_RECENT_HOURS;
+  return Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, Math.round(hours)));
+}
 const DISPLAY_PREFERENCES = '[data-testid="sidebar-display-preferences-menu"]';
 
 function workspaceId(row: El): string {
@@ -437,7 +453,7 @@ function applyFilter(): void {
   const recent = state.active === null;
   const cluster = state.clusters.find((c) => c.id === state.active) ?? null;
   const inAnyCluster = new Set(state.clusters.flatMap((c) => c.projects));
-  const cutoff = Date.now() - RECENT_WINDOW_MS;
+  const cutoff = Date.now() - recentHours() * 60 * 60 * 1000;
   const latestByKey = new Map<string, number>();
 
   for (const { group, key } of groups) {
@@ -679,7 +695,7 @@ function renderBar(bar: El, onAdd: () => void): void {
   const setActive = (id: string | null) => setState({ ...state, active: id });
   bar.replaceChildren(
     circle({
-      label: t().recentsTooltip,
+      label: t().recentsTooltip(recentHours()),
       ringKey: "recent",
       active: state.active === null,
       onClick: () => setActive(null),

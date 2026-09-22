@@ -13,6 +13,8 @@ export const clusterSchema = z.object({
 export const stateSchema = z.object({
   clusters: z.array(clusterSchema),
   recentOrder: z.array(z.string()).optional(),
+  /** How long a project stays in Recents, in hours (1–48). */
+  recentHours: z.number().int().min(1).max(48).optional(),
   /** Bumped on every write so clients can tell whose copy is newer. */
   revision: z.number().default(0),
 });

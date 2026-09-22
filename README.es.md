@@ -17,8 +17,9 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 
 - **Círculos en la barra lateral.** Una fila encima de «Nuevo espacio de trabajo». Al pulsar un
   cluster, la lista nativa muestra solo sus proyectos.
-- **⚡ Recientes.** Los proyectos usados en las últimas 24 horas. Entran arriba la primera vez,
-  después mantienen su sitio y los reordenas tú. Al pasar 24 horas sin uso, desaparecen.
+- **⚡ Recientes.** Los proyectos usados recientemente (24 horas por defecto, ajustable de 1 a 48
+  en la pantalla Clusters). Entran arriba la primera vez, después mantienen su sitio y los
+  reordenas tú. Cuando pasa ese tiempo sin uso, desaparecen.
 - **Todos.** La lista completa, tal y como la muestra Paseo.
 - **Anillos de estado.** Discontinuo cuando un workspace del cluster está trabajando, verde cuando
   alguno ha terminado y no lo has abierto.

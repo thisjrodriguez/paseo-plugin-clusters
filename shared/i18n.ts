@@ -3,7 +3,11 @@ export type LanguagePreference = Language | "auto";
 
 const en = {
   recentsLabel: "Recents",
-  recentsTooltip: "Recently used",
+  recentsTooltip: (hours: number) => `Used in the last ${hours} h`,
+  recentWindow: "TIME IN RECENTS",
+  recentWindowHint: (hours: number) => `Projects leave Recents after ${hours} h without use.`,
+  decrease: "Decrease",
+  increase: "Increase",
   allLabel: "All projects",
   manageLabel: "Create and edit clusters",
   clusterProjects: (count: number) => `${count} ${count === 1 ? "project" : "projects"}`,
@@ -47,7 +51,11 @@ const en = {
 
 const es: typeof en = {
   recentsLabel: "Recientes",
-  recentsTooltip: "Usados recientemente",
+  recentsTooltip: (hours) => `Usados en las últimas ${hours} h`,
+  recentWindow: "TIEMPO EN RECIENTES",
+  recentWindowHint: (hours) => `Los proyectos salen de Recientes tras ${hours} h sin uso.`,
+  decrease: "Menos",
+  increase: "Más",
   allLabel: "Todos los proyectos",
   manageLabel: "Crear y editar clusters",
   clusterProjects: (count) => `${count} ${count === 1 ? "proyecto" : "proyectos"}`,

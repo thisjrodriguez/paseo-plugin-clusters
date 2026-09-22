@@ -12,6 +12,9 @@ import {
   listSidebarProjects,
   moveProjectToCluster,
   setState,
+  MAX_RECENT_HOURS,
+  MIN_RECENT_HOURS,
+  recentHours,
   subscribe,
   t,
 } from "./web";
@@ -122,6 +125,32 @@ export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfa
       active: state.active === current.id ? null : state.active,
     });
   };
+
+  const hours = recentHours();
+  const setHours = (next: number) =>
+    setState({ ...state, recentHours: Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, next)) });
+
+  const stepButton = (label: string, a11y: string, disabled: boolean, onPress: () => void) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={a11y}
+      disabled={disabled}
+      onPress={onPress}
+      style={{
+        width: 36,
+        height: 36,
+        borderRadius: 6,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 1,
+        borderColor: c.border,
+        backgroundColor: c.surface1,
+        opacity: disabled ? 0.4 : 1,
+      }}
+    >
+      <Text style={{ color: c.foreground, fontSize: 18 }}>{label}</Text>
+    </Pressable>
+  );
 
   const tabButton = (id: string, label: string, color: string | null, count: number, icon?: string) => {
     const selected = tab === id;
@@ -273,6 +302,16 @@ export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfa
       <Text style={styles.muted}>
 {isWeb ? strings.intro : strings.mobileNotice}
       </Text>
+
+      <View style={{ gap: 6 }}>
+        <Text style={styles.section}>{strings.recentWindow}</Text>
+        <View style={styles.rowWrap}>
+          {stepButton("−", strings.decrease, hours <= MIN_RECENT_HOURS, () => setHours(hours - 1))}
+          <Text style={[styles.title, { minWidth: 64, textAlign: "center" }]}>{hours} h</Text>
+          {stepButton("+", strings.increase, hours >= MAX_RECENT_HOURS, () => setHours(hours + 1))}
+          <Text style={styles.muted}>{strings.recentWindowHint(hours)}</Text>
+        </View>
+      </View>
 
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
         <View style={[styles.rowWrap, { flex: 1 }]}>

@@ -17,8 +17,9 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 
 - **Circles in the sidebar.** A row above "New workspace". Selecting a cluster filters the native
   list down to its projects.
-- **Recents.** Projects used in the last 24 hours. A project enters at the top once, then keeps its
-  place until you drag it elsewhere, and drops out after 24 idle hours.
+- **Recents.** Projects used recently (24 hours by default, adjustable from 1 to 48 in the Clusters
+  screen). A project enters at the top once, then keeps its place until you drag it elsewhere, and
+  drops out once that time passes without use.
 - **All.** The full list, exactly as Paseo shows it.
 - **Status rings.** Dashed while a workspace in the cluster is running, green when one has finished
   and you have not opened it yet.
