@@ -89,6 +89,8 @@ export interface ClusterState {
   recentOrder?: string[];
   /** How long a project stays in Recents, in hours (1–48, default 24). */
   recentHours?: number;
+  /** Projects hidden from Recents, with when; they come back once used after that. */
+  recentHidden?: Record<string, number>;
 }
 
 const STORAGE_KEY = "paseo-clusters:v1";
@@ -150,6 +152,7 @@ export interface SharedState {
   clusters: Cluster[];
   recentOrder?: string[];
   recentHours?: number;
+  recentHidden?: Record<string, number>;
   revision: number;
 }
 
@@ -184,7 +187,8 @@ function sameShared(a: ClusterState, b: ClusterState): boolean {
   return (
     JSON.stringify(a.clusters) === JSON.stringify(b.clusters) &&
     JSON.stringify(a.recentOrder ?? []) === JSON.stringify(b.recentOrder ?? []) &&
-    (a.recentHours ?? DEFAULT_RECENT_HOURS) === (b.recentHours ?? DEFAULT_RECENT_HOURS)
+    (a.recentHours ?? DEFAULT_RECENT_HOURS) === (b.recentHours ?? DEFAULT_RECENT_HOURS) &&
+    JSON.stringify(a.recentHidden ?? {}) === JSON.stringify(b.recentHidden ?? {})
   );
 }
 
@@ -196,6 +200,7 @@ function push(): void {
       clusters: state.clusters,
       recentOrder: state.recentOrder,
       recentHours: state.recentHours,
+      recentHidden: state.recentHidden,
       revision,
     };
     for (const bridge of syncs) {
@@ -206,7 +211,22 @@ function push(): void {
   }, 300);
 }
 
-function adopt(shared: SharedState): void {
+/**
+ * Hidden projects only ever gain entries, so copies are merged rather than replaced: a daemon or
+ * client still on an older version drops the field and must not bring hidden projects back.
+ */
+function mergeHidden(
+  a: Record<string, number> | undefined,
+  b: Record<string, number> | undefined,
+): Record<string, number> | undefined {
+  if (!a || !b) return a ?? b;
+  const merged = { ...a };
+  for (const [key, at] of Object.entries(b)) merged[key] = Math.max(merged[key] ?? 0, at);
+  return merged;
+}
+
+function adopt(incoming: SharedState): void {
+  const shared = { ...incoming, recentHidden: mergeHidden(state.recentHidden, incoming.recentHidden) };
   if (shared.revision <= revision && sameShared(state, { ...state, ...shared })) return;
   if (shared.revision < revision) return;
   revision = shared.revision;
@@ -215,6 +235,7 @@ function adopt(shared: SharedState): void {
     clusters: dedupe(shared.clusters),
     recentOrder: shared.recentOrder,
     recentHours: shared.recentHours,
+    recentHidden: shared.recentHidden,
     active: active !== null && active !== ALL_ID && !shared.clusters.some((c) => c.id === active) ? null : active,
   };
   if (isWeb) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -491,8 +512,9 @@ function applyFilter(): void {
     }
   }
 
+  const hidden = state.recentHidden ?? {};
   const eligible = (key: string) =>
-    (latestByKey.get(key) ?? 0) > 0 && (inAnyCluster.size === 0 || inAnyCluster.has(key));
+    (latestByKey.get(key) ?? 0) > (hidden[key] ?? 0) && (inAnyCluster.size === 0 || inAnyCluster.has(key));
   const recentOrder = recent ? syncRecentOrder(groups, eligible, latestByKey) : [];
   for (const { group, key } of groups) {
     const hide = cluster ? !cluster.projects.includes(key) : recent && !recentOrder.includes(key);
@@ -503,8 +525,108 @@ function applyFilter(): void {
         ? String(cluster.projects.indexOf(key))
         : "";
     if (group.style.order !== order) group.style.order = order;
+    placeHideButton(group, key, recent);
   }
   updateRings();
+}
+
+const HIDE_ATTR = "data-paseo-clusters-hide";
+const HIDE_STYLE_ID = "paseo-clusters-hide-style";
+const EYE_OFF_SVG =
+  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="m2 2 20 20"/></svg>';
+
+/** Shows the button only while the project row is hovered, like Paseo's own "+" and "⋯". */
+function ensureHideStyle(): void {
+  if (document.querySelector(`#${HIDE_STYLE_ID}`)) return;
+  const style = document.createElement("style");
+  style.setAttribute("id", HIDE_STYLE_ID);
+  style.textContent = [
+    `[${HIDE_ATTR}] { opacity: 0; pointer-events: none; }`,
+    `[data-testid^="${ROW_PREFIX}"]:hover [${HIDE_ATTR}] { opacity: 1; pointer-events: auto; }`,
+    `[${HIDE_ATTR}]:hover { background: rgba(113, 113, 122, 0.18); }`,
+  ].join("\n");
+  document.body.appendChild(style);
+}
+
+/** Paseo's trailing actions ("+" and "⋯") of a project row. */
+function trailingActions(group: El): El | null {
+  const kebab = group.querySelector('[data-testid^="sidebar-project-kebab-"]');
+  const plus = group.querySelector('[data-testid^="sidebar-project-new-worktree-"]');
+  if (kebab && plus) {
+    let el: El | null = kebab;
+    while (el && !el.contains(plus)) el = el.parentElement;
+    return el;
+  }
+  // The kebab sits in a wrapper (which hides it) inside the actions row.
+  return kebab?.parentElement?.parentElement ?? plus?.parentElement ?? null;
+}
+
+/** In Recents, a button next to "+" and "⋯" that hides the project until it is used again. */
+function placeHideButton(group: El, key: string, recent: boolean): void {
+  const existing = group.querySelector(`[${HIDE_ATTR}]`);
+  if (!recent) {
+    existing?.remove();
+    return;
+  }
+  const actions = trailingActions(group);
+  if (!actions) return;
+  if (existing?.parentElement === actions) return;
+  existing?.remove();
+  ensureHideStyle();
+  const button = document.createElement("div");
+  button.innerHTML = EYE_OFF_SVG;
+  button.setAttribute(HIDE_ATTR, key);
+  button.setAttribute("role", "button");
+  button.setAttribute("aria-label", t().hideFromRecents);
+  const iconColor = group.querySelector('[data-testid^="sidebar-project-kebab-"] svg')?.getAttribute("stroke");
+  Object.assign(button.style, {
+    width: "24px",
+    height: "24px",
+    borderRadius: "6px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: "0",
+    cursor: "pointer",
+    color: iconColor || "#a1a1aa",
+    transition: "opacity 120ms ease",
+  });
+  button.onmouseenter = () => showTooltip(button, t().hideFromRecents);
+  button.onmouseleave = hideTooltip;
+  actions.insertBefore(button, actions.children[0] ?? null);
+}
+
+/** Drops a project from Recents until it has activity newer than now. */
+function hideFromRecents(key: string): void {
+  const now = Date.now();
+  // Past the longest window a hide can no longer matter, so old entries are dropped.
+  const oldest = now - MAX_RECENT_HOURS * 60 * 60 * 1000;
+  const hidden = Object.fromEntries(Object.entries(state.recentHidden ?? {}).filter(([, at]) => at >= oldest));
+  setState({
+    ...state,
+    recentHidden: { ...hidden, [key]: now },
+    recentOrder: (state.recentOrder ?? []).filter((k) => k !== key),
+  });
+}
+
+/** Keeps presses on the hide button away from the project row (open, drag, context menu). */
+function startHideButton(): () => void {
+  const types = ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend", "click"];
+  const onEvent = (event: PointerLike) => {
+    const target = event.target as El | null;
+    const button = target && typeof target.closest === "function" ? target.closest(`[${HIDE_ATTR}]`) : null;
+    if (!button) return;
+    event.stopImmediatePropagation();
+    event.preventDefault();
+    if (event.type !== "click") return;
+    hideTooltip();
+    const key = button.getAttribute(HIDE_ATTR);
+    if (key) hideFromRecents(key);
+  };
+  for (const type of types) window.addEventListener(type, onEvent, true);
+  return () => {
+    for (const type of types) window.removeEventListener(type, onEvent, true);
+  };
 }
 
 const PLUS_SVG =
@@ -1168,11 +1290,14 @@ function runSidebar(onAdd: () => void): () => void {
     if (bar) renderBar(bar, onAdd);
     applyFilter();
   });
+  // Registered first so its capture listeners run before the drag handlers below.
+  const stopHide = startHideButton();
   sync();
   const stopDrag = startProjectDrag();
   const stopClusterDrag = startClusterDrag();
   const tick = setInterval(scheduleFilter, 60_000);
   return () => {
+    stopHide();
     stopDrag();
     stopClusterDrag();
     clearInterval(tick);
@@ -1183,6 +1308,8 @@ function runSidebar(onAdd: () => void): () => void {
     const preferences = preferencesTarget();
     if (preferences) Object.assign(preferences.style, { visibility: "", pointerEvents: "" });
     dropLine?.remove();
+    for (const button of Array.from(document.querySelectorAll(`[${HIDE_ATTR}]`))) button.remove();
+    document.querySelector(`#${HIDE_STYLE_ID}`)?.remove();
     for (const { group } of projectGroups()) {
       Object.assign(group.style, { display: "", order: "" });
       for (const row of Array.from(group.querySelectorAll(`[data-testid^="${WORKSPACE_PREFIX}"]`))) {

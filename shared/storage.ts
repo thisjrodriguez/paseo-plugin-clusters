@@ -15,6 +15,8 @@ export const stateSchema = z.object({
   recentOrder: z.array(z.string()).optional(),
   /** How long a project stays in Recents, in hours (1–48). */
   recentHours: z.number().int().min(1).max(48).optional(),
+  /** Projects hidden from Recents, and when; they return once used after that. */
+  recentHidden: z.record(z.string(), z.number()).optional(),
   /** Bumped on every write so clients can tell whose copy is newer. */
   revision: z.number().default(0),
 });

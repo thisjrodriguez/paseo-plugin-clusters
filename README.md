@@ -20,6 +20,8 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 - **Recents.** Projects used recently (24 hours by default, adjustable from 1 to 48 in the Clusters
   screen). A project enters at the top once, then keeps its place until you drag it elsewhere, and
   drops out once that time passes without use.
+- **Hide from Recents.** Hover a project in Recents and press the crossed-out eye next to "+" and
+  "⋯" to drop it from the list until it is used again.
 - **All.** The full list, exactly as Paseo shows it.
 - **Status rings.** Dashed while a workspace in the cluster is running, green when one has finished
   and you have not opened it yet.
