@@ -1,12 +1,15 @@
 import { type PluginSurfaceProps, usePaseo } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import {
   COLORS,
   type Cluster,
+  type Daemon,
   type SidebarProject,
   clusterIcon,
+  DEFAULT_RECENT_HOURS,
+  focusDaemon,
   getState,
   isWeb,
   listSidebarProjects,
@@ -14,7 +17,6 @@ import {
   setState,
   MAX_RECENT_HOURS,
   MIN_RECENT_HOURS,
-  recentHours,
   subscribe,
   t,
 } from "./web";
@@ -29,8 +31,16 @@ function projectKey(serverId: string, projectId: string): string {
   return `remote:${projectId.replace(/^remote:/, "")}`;
 }
 
-export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfaceProps) {
-  const state = useSyncExternalStore(subscribe, getState);
+/** One screen per connected daemon: it shows and edits the clusters of its own daemon only. */
+export interface ClustersSurfaceProps extends PluginSurfaceProps {
+  daemon: Daemon;
+}
+
+export function ClustersSurface({ theme, layout, host, navigation, daemon }: ClustersSurfaceProps) {
+  const snapshot = useCallback(() => getState(daemon), [daemon]);
+  const state = useSyncExternalStore(subscribe, snapshot);
+  // Looking at a daemon's clusters is what points the sidebar bar at that daemon.
+  useEffect(() => focusDaemon(daemon), [daemon]);
   const strings = t();
   const [tab, setTab] = useState<string>(state.active && state.active !== ALL_TAB ? state.active : ALL_TAB);
   const [form, setForm] = useState<"create" | "edit" | null>(null);
@@ -111,24 +121,24 @@ export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfa
     const cluster: Cluster = { id: `c${Date.now().toString(36)}`, ...draft, projects: [] };
     setForm(null);
     setTab(cluster.id);
-    setState({ ...state, clusters: [...state.clusters, cluster] });
+    setState(daemon, { ...state, clusters: [...state.clusters, cluster] });
   };
 
   const updateCluster = (id: string, patch: Partial<Cluster>) =>
-    setState({ ...state, clusters: state.clusters.map((cl) => (cl.id === id ? { ...cl, ...patch } : cl)) });
+    setState(daemon, { ...state, clusters: state.clusters.map((cl) => (cl.id === id ? { ...cl, ...patch } : cl)) });
 
   const deleteCluster = () => {
     if (!current) return;
     setTab(ALL_TAB);
-    setState({
+    setState(daemon, {
       clusters: state.clusters.filter((cl) => cl.id !== current.id),
       active: state.active === current.id ? null : state.active,
     });
   };
 
-  const hours = recentHours();
+  const hours = Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, Math.round(state.recentHours ?? DEFAULT_RECENT_HOURS)));
   const setHours = (next: number) =>
-    setState({ ...state, recentHours: Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, next)) });
+    setState(daemon, { ...state, recentHours: Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, next)) });
 
   const stepButton = (label: string, a11y: string, disabled: boolean, onPress: () => void) => (
     <Pressable
@@ -198,7 +208,7 @@ export function ClustersSurface({ theme, layout, host, navigation }: PluginSurfa
       accessibilityRole="button"
       accessibilityLabel={target ? strings.moveTo(target.name) : strings.removeFromCluster}
       disabled={isCurrent}
-      onPress={() => moveProjectToCluster(key, target?.id ?? null)}
+      onPress={() => moveProjectToCluster(daemon, key, target?.id ?? null)}
       style={{
         flexDirection: "row",
         alignItems: "center",

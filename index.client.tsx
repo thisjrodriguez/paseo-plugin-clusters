@@ -1,8 +1,8 @@
-import type { PluginClientContext } from "@getpaseo/plugin/client";
+import type { PluginClientContext, PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { ClustersSurface } from "./client/clusters";
 import { t } from "./client/web";
 import { readState, writeState } from "./shared/storage";
-import { type WorkspaceStatus, isWeb, removeWorkspace, startSync, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
+import { type WorkspaceStatus, connectDaemon, disconnectDaemon, isWeb, removeWorkspace, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
 
 /** Fallback resync; live updates arrive through the subscriptions below. */
 const RESYNC_MS = 60_000;
@@ -29,7 +29,16 @@ function recordWorkspace(w: WorkspaceLike): void {
 }
 
 export default function contribute(client: PluginClientContext) {
-  client.addSurface("clusters", ClustersSurface);
+  // One copy of this plugin runs per connected daemon. This one speaks only for its own daemon:
+  // its clusters are read from and written to that daemon, never to any other.
+  const daemon = connectDaemon({
+    read: () => client.rpc(readState, {}),
+    write: async (shared) => {
+      await client.rpc(writeState, { state: shared });
+    },
+  });
+
+  client.addSurface("clusters", (props: PluginSurfaceProps) => <ClustersSurface {...props} daemon={daemon} />);
   client.addSidebarItem({
     id: "clusters",
     title: t().sidebarItem,
@@ -46,16 +55,10 @@ export default function contribute(client: PluginClientContext) {
     },
   });
 
-  const stopSync = startSync({
-    read: async () => (await client.rpc(readState, {})).state,
-    write: async (shared) => {
-      await client.rpc(writeState, { state: shared });
-    },
-  });
-  const stopSidebar = startSidebarClusters(() => client.openSurface("clusters"));
+  const stopSidebar = startSidebarClusters(daemon, () => client.openSurface("clusters"));
   if (!isWeb) {
     return () => {
-      stopSync();
+      disconnectDaemon(daemon);
       stopSidebar();
     };
   }
@@ -100,6 +103,6 @@ export default function contribute(client: PluginClientContext) {
     stopWorkspaces();
     stopAgents();
     stopSidebar();
-    stopSync();
+    disconnectDaemon(daemon);
   };
 }

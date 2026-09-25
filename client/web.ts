@@ -1,5 +1,7 @@
 import { Platform } from "react-native";
 import { LANGUAGES, type Language, type LanguagePreference, type Strings } from "../shared/i18n";
+import * as store from "./store";
+import type { Cluster, ClusterState, Daemon, DaemonSync } from "./store";
 
 // Desktop/web only: the native sidebar is manipulated through the DOM.
 // This plugin typechecks without the DOM library. Declare only what this module uses.
@@ -69,37 +71,16 @@ export const isWeb = Platform.OS === "web";
 
 export const COLORS = ["#3b82f6", "#ef4444", "#f97316", "#10b981", "#a855f7", "#eab308", "#ec4899", "#14b8a6"];
 
-export interface Cluster {
-  id: string;
-  name: string;
-  color: string;
-  /** Letter, emoji or symbol shown in the circle; falls back to the name's initial. */
-  icon?: string;
-  projects: string[];
-}
+export type { Cluster, ClusterState, SharedState, Daemon, DaemonSync } from "./store";
+export const { ALL_ID, DEFAULT_RECENT_HOURS, MIN_RECENT_HOURS, MAX_RECENT_HOURS } = store;
+
 export function clusterIcon(cluster: Pick<Cluster, "name" | "icon">): string {
   const icon = cluster.icon?.trim();
   return icon ? Array.from(icon).slice(0, 2).join("") : (Array.from(cluster.name.trim())[0] ?? "?").toUpperCase();
 }
 
-export interface ClusterState {
-  clusters: Cluster[];
-  active: string | null;
-  /** Manual order of "Recientes": new projects enter on top, existing ones keep their place. */
-  recentOrder?: string[];
-  /** How long a project stays in Recents, in hours (1–48, default 24). */
-  recentHours?: number;
-  /** Projects hidden from Recents, with when; they come back once used after that. */
-  recentHidden?: Record<string, number>;
-}
-
-const STORAGE_KEY = "paseo-clusters:v1";
 const ROW_PREFIX = "sidebar-project-row-";
 const BAR_ID = "paseo-clusters-bar";
-const SYNC_POLL_MS = 5000;
-export const DEFAULT_RECENT_HOURS = 24;
-export const MIN_RECENT_HOURS = 1;
-export const MAX_RECENT_HOURS = 48;
 const LANGUAGE_KEY = "paseo-clusters:language";
 
 function systemLanguage(): Language {
@@ -128,8 +109,8 @@ export function setLanguagePreference(next: LanguagePreference): void {
   languagePreference = next;
   if (isWeb) localStorage.setItem(LANGUAGE_KEY, next);
   const bar = document.querySelector(`#${BAR_ID}`);
-  if (bar && barOnAdd) renderBar(bar, barOnAdd);
-  for (const listener of listeners) listener();
+  if (bar) renderBar(bar, openCurrent);
+  store.notifyListeners();
 }
 
 /** Strings for the active language: the user's choice, or the client's own language. */
@@ -139,159 +120,59 @@ export function t(): Strings {
   return LANGUAGES[languagePreference === "auto" ? systemLanguage() : languagePreference];
 }
 
-export const ALL_ID = "__all__";
-
-/** Clusters live on the daemon so every client of that host shares them. */
-export interface ClusterSync {
-  read(): Promise<SharedState | null>;
-  write(state: SharedState): Promise<void>;
+/** Web clients cache each daemon's clusters in localStorage, under that daemon's own key. */
+if (isWeb) {
+  store.setPersistence({
+    read: (key) => localStorage.getItem(key),
+    write: (key, value) => localStorage.setItem(key, value),
+  });
 }
 
-/** The part shared between clients; `active` stays local to each app. */
-export interface SharedState {
-  clusters: Cluster[];
-  recentOrder?: string[];
-  recentHours?: number;
-  recentHidden?: Record<string, number>;
-  revision: number;
-}
-
-let state: ClusterState = load();
-let revision = 0;
-/** One bridge per connected daemon; every one of them stores a full copy. */
-const syncs = new Set<ClusterSync>();
-let pushTimer: number | null = null;
-let barOnAdd: (() => void) | null = null;
-const listeners = new Set<() => void>();
-
-function dedupe(clusters: Cluster[]): Cluster[] {
-  const seen = new Set<string>();
-  return clusters.map((cluster) => ({
-    ...cluster,
-    projects: cluster.projects.filter((key) => !seen.has(key) && (seen.add(key), true)),
-  }));
-}
-
-function load(): ClusterState {
-  if (!isWeb) return { clusters: [], active: null };
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as ClusterState | null;
-    if (parsed && Array.isArray(parsed.clusters)) return { ...parsed, clusters: dedupe(parsed.clusters) };
-  } catch {
-    // Corrupt storage falls back to an empty state.
-  }
-  return { clusters: [], active: null };
-}
-
-function sameShared(a: ClusterState, b: ClusterState): boolean {
-  return (
-    JSON.stringify(a.clusters) === JSON.stringify(b.clusters) &&
-    JSON.stringify(a.recentOrder ?? []) === JSON.stringify(b.recentOrder ?? []) &&
-    (a.recentHours ?? DEFAULT_RECENT_HOURS) === (b.recentHours ?? DEFAULT_RECENT_HOURS) &&
-    JSON.stringify(a.recentHidden ?? {}) === JSON.stringify(b.recentHidden ?? {})
-  );
-}
-
-function push(): void {
-  if (syncs.size === 0 || pushTimer !== null) return;
-  pushTimer = setTimeout(() => {
-    pushTimer = null;
-    const shared: SharedState = {
-      clusters: state.clusters,
-      recentOrder: state.recentOrder,
-      recentHours: state.recentHours,
-      recentHidden: state.recentHidden,
-      revision,
-    };
-    for (const bridge of syncs) {
-      void bridge.write(shared).catch((error: unknown) => {
-        console.warn("[paseo-clusters] Could not save to the daemon", error);
-      });
-    }
-  }, 300);
-}
-
-/**
- * Hidden projects only ever gain entries, so copies are merged rather than replaced: a daemon or
- * client still on an older version drops the field and must not bring hidden projects back.
- */
-function mergeHidden(
-  a: Record<string, number> | undefined,
-  b: Record<string, number> | undefined,
-): Record<string, number> | undefined {
-  if (!a || !b) return a ?? b;
-  const merged = { ...a };
-  for (const [key, at] of Object.entries(b)) merged[key] = Math.max(merged[key] ?? 0, at);
-  return merged;
-}
-
-function adopt(incoming: SharedState): void {
-  const shared = { ...incoming, recentHidden: mergeHidden(state.recentHidden, incoming.recentHidden) };
-  if (shared.revision <= revision && sameShared(state, { ...state, ...shared })) return;
-  if (shared.revision < revision) return;
-  revision = shared.revision;
-  const active = state.active;
-  state = {
-    clusters: dedupe(shared.clusters),
-    recentOrder: shared.recentOrder,
-    recentHours: shared.recentHours,
-    recentHidden: shared.recentHidden,
-    active: active !== null && active !== ALL_ID && !shared.clusters.some((c) => c.id === active) ? null : active,
-  };
-  if (isWeb) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  for (const listener of listeners) listener();
-}
-
-/** Connects the store to the daemon: initial read, periodic refresh, and write-through. */
-export function startSync(bridge: ClusterSync): () => void {
+/** Connects one daemon to the store. Its clusters stay its own: nothing is shared between daemons. */
+export function connectDaemon(sync: DaemonSync): Daemon {
   const other = otherOwner();
-  if (other) return other.startSync(bridge);
-  syncs.add(bridge);
-  let stopped = false;
-  const pull = async () => {
-    try {
-      const shared = await bridge.read();
-      if (stopped) return;
-      // Newest copy wins; a daemon that is behind (or empty) receives ours. An empty copy never
-      // replaces real clusters, so a freshly connected daemon cannot wipe them.
-      const emptyOverFull = shared !== null && shared.clusters.length === 0 && state.clusters.length > 0;
-      if (shared && shared.revision >= revision && !emptyOverFull) adopt(shared);
-      else if (state.clusters.length > 0) push();
-    } catch (error) {
-      console.warn("[paseo-clusters] Could not read from the daemon", error);
-    }
-  };
-  void pull();
-  const timer = setInterval(() => void pull(), SYNC_POLL_MS);
-  return () => {
-    stopped = true;
-    clearInterval(timer);
-    syncs.delete(bridge);
-  };
+  if (other) return other.connectDaemon(sync);
+  return store.startDaemon(sync);
 }
 
-export function getState(): ClusterState {
+export function disconnectDaemon(daemon: Daemon): void {
   const other = otherOwner();
-  if (other) return other.getState();
-  return state;
+  if (other) return other.disconnectDaemon(daemon);
+  store.stopDaemon(daemon);
 }
 
-export function setState(next: ClusterState): void {
+/** Points the sidebar at a daemon: opening a daemon's Clusters screen shows that daemon's clusters. */
+export function focusDaemon(daemon: Daemon): void {
   const other = otherOwner();
-  if (other) return other.setState(next);
-  const changed = !sameShared(state, next);
-  state = next;
-  if (changed) revision += 1;
-  if (isWeb) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  if (changed) push();
-  for (const listener of listeners) listener();
+  if (other) return other.focusDaemon(daemon);
+  store.focusDaemon(daemon);
+}
+
+export function getState(daemon: Daemon | null): ClusterState {
+  const other = otherOwner();
+  if (other) return other.getState(daemon);
+  return store.getState(daemon);
+}
+
+export function setState(daemon: Daemon | null, next: ClusterState): void {
+  const other = otherOwner();
+  if (other) return other.setState(daemon, next);
+  store.setState(daemon, next);
 }
 
 export function subscribe(listener: () => void): () => void {
   const other = otherOwner();
   if (other) return other.subscribe(listener);
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  return store.subscribe(listener);
+}
+
+/** The state of the daemon the sidebar is showing. Only the owning copy reaches these. */
+function view(): ClusterState {
+  return store.getState(store.currentDaemon());
+}
+
+function setView(next: ClusterState): void {
+  store.setState(store.currentDaemon(), next);
 }
 
 export interface SidebarProject {
@@ -390,7 +271,7 @@ function projectPathOfKey(key: string): string {
 }
 
 export function recentHours(): number {
-  const hours = getState().recentHours ?? DEFAULT_RECENT_HOURS;
+  const hours = view().recentHours ?? DEFAULT_RECENT_HOURS;
   return Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, Math.round(hours)));
 }
 const DISPLAY_PREFERENCES = '[data-testid="sidebar-display-preferences-menu"]';
@@ -417,6 +298,7 @@ let seenProjects: Set<string> | null = null;
 
 /** Files projects that appear while a cluster is selected into that cluster. */
 function adoptNewProjects(groups: { key: string }[]): void {
+  const state = view();
   if (groups.length === 0) return;
   if (!seenProjects) {
     seenProjects = new Set(groups.map((g) => g.key));
@@ -430,7 +312,7 @@ function adoptNewProjects(groups: { key: string }[]): void {
   const assigned = new Set(state.clusters.flatMap((c) => c.projects));
   const toAdd = fresh.filter((key) => !assigned.has(key));
   if (toAdd.length === 0) return;
-  setState({
+  setView({
     ...state,
     clusters: state.clusters.map((c) => (c.id === cluster.id ? { ...c, projects: [...c.projects, ...toAdd] } : c)),
   });
@@ -452,6 +334,7 @@ function syncRecentOrder(
   eligible: (key: string) => boolean,
   latestByKey: Map<string, number>,
 ): string[] {
+  const state = view();
   const previous = state.recentOrder ?? [];
   // Until activity has loaded, every project looks idle; don't prune the saved order yet.
   if (groups.length === 0 || activity.size === 0) return previous;
@@ -463,12 +346,13 @@ function syncRecentOrder(
     .sort((a, b) => (latestByKey.get(b) ?? 0) - (latestByKey.get(a) ?? 0));
   const next = [...incoming, ...kept];
   if (next.length !== previous.length || next.some((key, i) => key !== previous[i])) {
-    setState({ ...state, recentOrder: next });
+    setView({ ...state, recentOrder: next });
   }
   return next;
 }
 
 function applyFilter(): void {
+  const state = view();
   const groups = projectGroups();
   adoptNewProjects(groups);
   const recent = state.active === null;
@@ -598,11 +482,12 @@ function placeHideButton(group: El, key: string, recent: boolean): void {
 
 /** Drops a project from Recents until it has activity newer than now. */
 function hideFromRecents(key: string): void {
+  const state = view();
   const now = Date.now();
   // Past the longest window a hide can no longer matter, so old entries are dropped.
   const oldest = now - MAX_RECENT_HOURS * 60 * 60 * 1000;
   const hidden = Object.fromEntries(Object.entries(state.recentHidden ?? {}).filter(([, at]) => at >= oldest));
-  setState({
+  setView({
     ...state,
     recentHidden: { ...hidden, [key]: now },
     recentOrder: (state.recentOrder ?? []).filter((k) => k !== key),
@@ -803,6 +688,7 @@ function paintRing(circleEl: El, ring: RingState): void {
 }
 
 function updateRings(): void {
+  const state = view();
   const bar = document.querySelector(`#${BAR_ID}`);
   if (!bar) return;
   const recentCircle = bar.querySelector('[data-ring-key="recent"]');
@@ -814,7 +700,8 @@ function updateRings(): void {
 }
 
 function renderBar(bar: El, onAdd: () => void): void {
-  const setActive = (id: string | null) => setState({ ...state, active: id });
+  const state = view();
+  const setActive = (id: string | null) => setView({ ...state, active: id });
   bar.replaceChildren(
     circle({
       label: t().recentsTooltip(recentHours()),
@@ -853,7 +740,6 @@ function renderBar(bar: El, onAdd: () => void): void {
   updateRings();
 }
 function mountBar(onAdd: () => void): El | null {
-  barOnAdd = onAdd;
   const existing = document.querySelector(`#${BAR_ID}`);
   if (existing) return existing;
   const newButton = document.querySelector('[data-testid="sidebar-global-new-workspace"]');
@@ -887,13 +773,14 @@ function flash(anchor: El, text: string): void {
   setTimeout(hideTooltip, 1500);
 }
 
-/** Moves a project into one cluster (removing it from the rest), or out of all of them with `null`. */
-export function moveProjectToCluster(key: string, clusterId: string | null): Cluster | null {
+/** Moves a project into one cluster of one daemon (removing it from the rest of that daemon's). */
+export function moveProjectToCluster(daemon: Daemon | null, key: string, clusterId: string | null): Cluster | null {
   const other = otherOwner();
-  if (other) return other.moveProjectToCluster(key, clusterId);
+  if (other) return other.moveProjectToCluster(daemon, key, clusterId);
+  const state = store.getState(daemon);
   const target = state.clusters.find((c) => c.id === clusterId) ?? null;
   if (clusterId !== null && !target) return null;
-  setState({
+  store.setState(daemon, {
     ...state,
     clusters: state.clusters.map((c) => {
       const without = c.projects.filter((p) => p !== key);
@@ -949,6 +836,7 @@ function restingRect(el: El): { left: number; top: number; bottom: number; width
 
 /** The manually ordered list behind the current view: a cluster's projects or "Recientes". */
 function activeOrder(): string[] | null {
+  const state = view();
   if (state.active === null) return state.recentOrder ?? [];
   return state.clusters.find((c) => c.id === state.active)?.projects ?? null;
 }
@@ -1017,17 +905,18 @@ function clearPreview(): void {
 }
 
 function reorderInCluster(dragKey: string, slot: DropSlot): void {
+  const state = view();
   const ordered = [...slot.keys];
   ordered.splice(slot.index, 0, dragKey);
   if (state.active === null) {
     const rest = (state.recentOrder ?? []).filter((key) => !ordered.includes(key));
-    setState({ ...state, recentOrder: [...ordered, ...rest] });
+    setView({ ...state, recentOrder: [...ordered, ...rest] });
     return;
   }
   const cluster = state.clusters.find((c) => c.id === state.active);
   if (!cluster) return;
   const rest = cluster.projects.filter((key) => !ordered.includes(key));
-  setState({
+  setView({
     ...state,
     clusters: state.clusters.map((c) => (c.id === cluster.id ? { ...c, projects: [...ordered, ...rest] } : c)),
   });
@@ -1136,11 +1025,12 @@ function startClusterDrag(): () => void {
     for (const c of circles()) Object.assign(c.item.style, { transform: "", zIndex: "", opacity: "", transition: "", cursor: "" });
     item = null;
     if (event.type === "pointercancel") return;
+    const state = view();
     const moving = state.clusters.find((c) => c.id === id);
     if (!moving) return;
     const rest = state.clusters.filter((c) => c.id !== id);
     rest.splice(index, 0, moving);
-    setState({ ...state, clusters: rest });
+    setView({ ...state, clusters: rest });
   };
   const onClick = (event: PointerLike) => {
     if (!suppressClick) return;
@@ -1163,7 +1053,7 @@ function startClusterDrag(): () => void {
 }
 
 function blocksNative(): boolean {
-  return state.active !== ALL_ID;
+  return view().active !== ALL_ID;
 }
 
 /** Lets the user drop a sidebar project (or one of its workspaces) onto a cluster circle. */
@@ -1221,7 +1111,7 @@ function startProjectDrag(): () => void {
       if (slot) reorderInCluster(key, slot);
       return;
     }
-    const moved = moveProjectToCluster(key, clusterId);
+    const moved = moveProjectToCluster(store.currentDaemon(), key, clusterId);
     const fresh = document.querySelector(`[data-cluster-id="${clusterId}"]`) ?? over;
     if (moved) flash(fresh, t().movedTo(moved.name));
   };
@@ -1248,21 +1138,36 @@ function startProjectDrag(): () => void {
   };
 }
 
-/** Injects the cluster bar into the native sidebar and keeps the project filter applied. */
-export function startSidebarClusters(onAdd: () => void): () => void {
+/**
+ * Injects the cluster bar into the native sidebar and keeps the project filter applied. One bar is
+ * shared by every copy, showing the clusters of the daemon being viewed; "+" opens that daemon's
+ * Clusters screen.
+ */
+export function startSidebarClusters(daemon: Daemon, onAdd: () => void): () => void {
   const other = otherOwner();
-  if (other) return other.startSidebarClusters(onAdd);
-  if (!isWeb) return () => {};
+  if (other) return other.startSidebarClusters(daemon, onAdd);
+  openers.set(daemon, onAdd);
+  const release = () => releaseSidebar(daemon);
+  if (!isWeb) return release;
   sidebarUsers += 1;
-  if (sidebarUsers > 1) return releaseSidebar;
-  stopSidebar = runSidebar(onAdd);
-  return releaseSidebar;
+  if (sidebarUsers > 1) return release;
+  stopSidebar = runSidebar();
+  return release;
 }
 
 let sidebarUsers = 0;
 let stopSidebar: (() => void) | null = null;
+/** How to open the Clusters screen of each connected daemon. */
+const openers = new Map<Daemon, () => void>();
 
-function releaseSidebar(): void {
+/** Opens the Clusters screen of the daemon the bar is showing. */
+function openCurrent(): void {
+  const daemon = store.currentDaemon();
+  if (daemon) openers.get(daemon)?.();
+}
+
+function releaseSidebar(daemon: Daemon): void {
+  openers.delete(daemon);
   if (sidebarUsers === 0) return;
   sidebarUsers -= 1;
   if (sidebarUsers > 0) return;
@@ -1271,11 +1176,11 @@ function releaseSidebar(): void {
   releaseOwnership();
 }
 
-function runSidebar(onAdd: () => void): () => void {
+function runSidebar(): () => void {
   let scheduled = false;
   const sync = () => {
     scheduled = false;
-    mountBar(onAdd);
+    mountBar(openCurrent);
     applyFilter();
   };
   const schedule = () => {
@@ -1287,7 +1192,7 @@ function runSidebar(onAdd: () => void): () => void {
   observer.observe(document.body, { childList: true, subtree: true });
   const unsubscribe = subscribe(() => {
     const bar = document.querySelector(`#${BAR_ID}`);
-    if (bar) renderBar(bar, onAdd);
+    if (bar) renderBar(bar, openCurrent);
     applyFilter();
   });
   // Registered first so its capture listeners run before the drag handlers below.
@@ -1332,7 +1237,9 @@ interface Owner {
   getState: typeof getState;
   setState: typeof setState;
   subscribe: typeof subscribe;
-  startSync: typeof startSync;
+  connectDaemon: typeof connectDaemon;
+  disconnectDaemon: typeof disconnectDaemon;
+  focusDaemon: typeof focusDaemon;
   setWorkspaceActivity: typeof setWorkspaceActivity;
   touchWorkspace: typeof touchWorkspace;
   removeWorkspace: typeof removeWorkspace;
@@ -1357,7 +1264,9 @@ function otherOwner(): Owner | null {
     getState,
     setState,
     subscribe,
-    startSync,
+    connectDaemon,
+    disconnectDaemon,
+    focusDaemon,
     setWorkspaceActivity,
     touchWorkspace,
     removeWorkspace,

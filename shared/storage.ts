@@ -24,7 +24,11 @@ export const stateSchema = z.object({
 export const readState = defineRpc({
   name: "clusters.read",
   input: z.object({}),
-  output: z.object({ state: stateSchema.nullable() }),
+  /**
+   * `serverId` is the daemon's own identity. The app does not hand client contributions its server
+   * id, so clients ask the daemon for it and keep each daemon's clusters apart under it.
+   */
+  output: z.object({ serverId: z.string(), state: stateSchema.nullable() }),
 });
 
 export const writeState = defineRpc({

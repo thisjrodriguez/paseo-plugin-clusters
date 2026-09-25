@@ -30,8 +30,10 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 - **Pantalla de gestión.** Crear clusters con nombre, icono (letra, emoji o símbolo) y color libre;
   mover proyectos entre clusters; buscador; y la pestaña Todos con los proyectos sin cluster.
 - **Un proyecto, un cluster.** Los proyectos nuevos entran en el cluster que tengas seleccionado.
-- **Sincronizado.** Los clusters se guardan en el daemon, así que son los mismos desde cualquier
-  cliente conectado a ese equipo. La vista seleccionada es de cada cliente.
+- **Cada daemon, sus clusters.** Los clusters se guardan en el daemon, así que son los mismos desde
+  cualquier cliente conectado a ese equipo, y solo a ese. Con varios daemons conectados, la barra
+  muestra los del que estás viendo y los cambios se escriben solo en ese daemon. La vista
+  seleccionada es de cada cliente.
 
 ## Limitaciones
 
@@ -47,6 +49,7 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 ```bash
 npm install
 npm run typecheck
+npm test
 paseo plugin install /ruta/a/paseo-plugin-clusters
 paseo plugin reload paseo-clusters   # tras cada cambio
 paseo plugin logs paseo-clusters
@@ -55,7 +58,8 @@ paseo plugin logs paseo-clusters
 | Archivo | Para qué |
 | --- | --- |
 | `index.client.tsx` | Registra la pantalla, el menú y arranca la barra y la sincronización |
-| `client/web.ts` | Barra de círculos, filtro de la lista nativa, arrastres y estado |
+| `client/web.ts` | Barra de círculos, filtro de la lista nativa y arrastres |
+| `client/store.ts` | Estado de los clusters, uno por daemon conectado |
 | `client/clusters.tsx` | Pantalla de gestión de clusters |
 | `client/cluster-form.tsx` | Formulario de crear y editar |
 | `index.server.ts`, `server/storage.ts` | Guarda los clusters en el daemon |

@@ -47,4 +47,7 @@ jobs:
         run: npm run typecheck
 
       - if: steps.version.outputs.publish == 'true'
+        run: npm test
+
+      - if: steps.version.outputs.publish == 'true'
         run: npm publish --access public
