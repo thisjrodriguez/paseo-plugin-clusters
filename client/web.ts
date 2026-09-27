@@ -376,11 +376,11 @@ function applyFilter(): void {
       const at = activityAt(id);
       if (at >= cutoff) latest = Math.max(latest, at);
     }
+    // The window decides which projects are recent, not which of their sessions are shown: a
+    // project on the list keeps all of them, exactly as Paseo lists them.
     for (const row of Array.from(group.querySelectorAll(`[data-testid^="${WORKSPACE_PREFIX}"]`))) {
-      const at = activityAt(workspaceId(row));
-      const fresh = at >= cutoff;
-      setDisplay(workspaceItem(row), recent && !fresh);
       const item = workspaceItem(row);
+      setDisplay(item, false);
       if (item.style.order) item.style.order = "";
     }
     latestByKey.set(key, latest);

@@ -19,7 +19,8 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
   cluster, la lista nativa muestra solo sus proyectos.
 - **⚡ Recientes.** Los proyectos usados recientemente (24 horas por defecto, ajustable de 1 a 48
   en la pantalla Clusters). Entran arriba la primera vez, después mantienen su sitio y los
-  reordenas tú. Cuando pasa ese tiempo sin uso, desaparecen.
+  reordenas tú. Cuando pasa ese tiempo sin uso, desaparecen. Un proyecto en la lista muestra
+  todas sus sesiones.
 - **Ocultar de Recientes.** Pasa el ratón por un proyecto en Recientes y pulsa el ojo tachado junto
   a «+» y «⋯» para quitarlo de la lista hasta que se vuelva a usar.
 - **Todos.** La lista completa, tal y como la muestra Paseo.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Recents showed only part of a project's sessions: any session last used outside the window was
+  hidden, even though its project was on the list. The window decides which projects are recent,
+  not which of their sessions are shown, so a project on the list now keeps all of them.
+
 ## 0.2.0
 
 **Security fix: clusters leaked between accounts.** Up to 0.1.3 the app kept a single cluster state
