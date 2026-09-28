@@ -228,9 +228,18 @@ function scheduleFilter(): void {
   });
 }
 
-export function setWorkspaceActivity(id: string, next: WorkspaceActivity): void {
+/** Tells the store which daemon a project belongs to, so Recents can span all of them. */
+export function registerProjects(daemon: Daemon, keys: readonly string[]): void {
   const other = otherOwner();
-  if (other) return other.setWorkspaceActivity(id, next);
+  if (other) return other.registerProjects(daemon, keys);
+  for (const key of keys) store.registerProjectKey(daemon, key);
+  scheduleFilter();
+}
+
+export function setWorkspaceActivity(daemon: Daemon, id: string, next: WorkspaceActivity): void {
+  const other = otherOwner();
+  if (other) return other.setWorkspaceActivity(daemon, id, next);
+  if (next.projectPath) store.registerProjectPath(daemon, next.projectPath);
   const current = activity.get(id);
   const status = next.status === undefined ? current?.status : next.status;
   if (
@@ -249,11 +258,11 @@ export function setWorkspaceActivity(id: string, next: WorkspaceActivity): void 
   scheduleFilter();
 }
 
-export function touchWorkspace(id: string, at: number): void {
+export function touchWorkspace(daemon: Daemon, id: string, at: number): void {
   const other = otherOwner();
-  if (other) return other.touchWorkspace(id, at);
+  if (other) return other.touchWorkspace(daemon, id, at);
   const current = activity.get(id);
-  setWorkspaceActivity(id, { at, projectPath: current?.projectPath ?? "", status: current?.status });
+  setWorkspaceActivity(daemon, id, { at, projectPath: current?.projectPath ?? "", status: current?.status });
 }
 
 export function removeWorkspace(id: string): void {
@@ -310,7 +319,9 @@ function adoptNewProjects(groups: { key: string }[]): void {
   const cluster = state.clusters.find((c) => c.id === state.active);
   if (!cluster) return;
   const assigned = new Set(state.clusters.flatMap((c) => c.projects));
-  const toAdd = fresh.filter((key) => !assigned.has(key));
+  // A cluster belongs to one daemon; only that daemon's own projects may join it.
+  const current = store.currentDaemon();
+  const toAdd = fresh.filter((key) => !assigned.has(key) && store.daemonOfKey(key) === current);
   if (toAdd.length === 0) return;
   setView({
     ...state,
@@ -325,30 +336,56 @@ function preferencesTarget(): El | null {
   return el;
 }
 
+/** How long this project stays in Recents: its own daemon's window, not the one being viewed. */
+function cutoffOf(key: string): number {
+  const state = store.stateOfKey(key) ?? view();
+  const hours = state.recentHours ?? DEFAULT_RECENT_HOURS;
+  const clamped = Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, Math.round(hours)));
+  return Date.now() - clamped * 60 * 60 * 1000;
+}
+
 /**
- * Keeps "Recientes" stable: expired projects drop out, newly active ones enter on top,
- * and everything else stays where it was (or where the user dragged it).
+ * Whether a project belongs in Recents, judged against its own daemon: its window, the projects
+ * it hid, and its clusters. The sidebar mixes daemons, so asking the viewed one would drop every
+ * project that lives on any other.
  */
-function syncRecentOrder(
-  groups: { key: string }[],
-  eligible: (key: string) => boolean,
-  latestByKey: Map<string, number>,
-): string[] {
-  const state = view();
-  const previous = state.recentOrder ?? [];
+function eligibleFor(key: string, latest: number): boolean {
+  const state = store.stateOfKey(key);
+  if (!state) return false;
+  const hidden = state.recentHidden ?? {};
+  const inAnyCluster = new Set(state.clusters.flatMap((c) => c.projects));
+  return latest > (hidden[key] ?? 0) && (inAnyCluster.size === 0 || inAnyCluster.has(key));
+}
+
+/**
+ * Keeps "Recientes" stable across every connected daemon: expired projects drop out, newly active
+ * ones enter on top, and everything else stays where it was (or where the user dragged it). Each
+ * project's place is written back to the daemon that owns it.
+ */
+function syncRecents(groups: { key: string }[], latestByKey: Map<string, number>): string[] {
+  const order = store.recentKeys();
   // Until activity has loaded, every project looks idle; don't prune the saved order yet.
-  if (groups.length === 0 || activity.size === 0) return previous;
+  if (groups.length === 0 || activity.size === 0) return order;
   const present = new Set(groups.map((g) => g.key));
-  const kept = previous.filter((key) => !present.has(key) || eligible(key));
+  const ranked = new Set(order);
+  const changes = new Map<string, number | null>();
   const incoming = groups
     .map((g) => g.key)
-    .filter((key) => eligible(key) && !kept.includes(key))
-    .sort((a, b) => (latestByKey.get(b) ?? 0) - (latestByKey.get(a) ?? 0));
-  const next = [...incoming, ...kept];
-  if (next.length !== previous.length || next.some((key, i) => key !== previous[i])) {
-    setView({ ...state, recentOrder: next });
+    // A project whose daemon is not known yet is left alone rather than guessed at.
+    .filter((key) => !ranked.has(key) && store.daemonOfKey(key) && eligibleFor(key, latestByKey.get(key) ?? 0))
+    .sort((a, b) => (latestByKey.get(a) ?? 0) - (latestByKey.get(b) ?? 0));
+  let top = store.topRank();
+  for (const key of incoming) {
+    top += store.RANK_STEP;
+    changes.set(key, top);
   }
-  return next;
+  for (const key of order) {
+    if (!present.has(key) || !store.daemonOfKey(key)) continue;
+    if (!eligibleFor(key, latestByKey.get(key) ?? 0)) changes.set(key, null);
+  }
+  if (changes.size === 0) return order;
+  store.setRanks(changes);
+  return store.recentKeys();
 }
 
 function applyFilter(): void {
@@ -357,8 +394,6 @@ function applyFilter(): void {
   adoptNewProjects(groups);
   const recent = state.active === null;
   const cluster = state.clusters.find((c) => c.id === state.active) ?? null;
-  const inAnyCluster = new Set(state.clusters.flatMap((c) => c.projects));
-  const cutoff = Date.now() - recentHours() * 60 * 60 * 1000;
   const latestByKey = new Map<string, number>();
 
   for (const { group, key } of groups) {
@@ -372,6 +407,7 @@ function applyFilter(): void {
     if (path) {
       for (const [id, info] of activity) if (info.projectPath === path) known.add(id);
     }
+    const cutoff = cutoffOf(key);
     for (const id of known) {
       const at = activityAt(id);
       if (at >= cutoff) latest = Math.max(latest, at);
@@ -396,10 +432,7 @@ function applyFilter(): void {
     }
   }
 
-  const hidden = state.recentHidden ?? {};
-  const eligible = (key: string) =>
-    (latestByKey.get(key) ?? 0) > (hidden[key] ?? 0) && (inAnyCluster.size === 0 || inAnyCluster.has(key));
-  const recentOrder = recent ? syncRecentOrder(groups, eligible, latestByKey) : [];
+  const recentOrder = recent ? syncRecents(groups, latestByKey) : [];
   for (const { group, key } of groups) {
     const hide = cluster ? !cluster.projects.includes(key) : recent && !recentOrder.includes(key);
     setDisplay(group, hide);
@@ -480,18 +513,18 @@ function placeHideButton(group: El, key: string, recent: boolean): void {
   actions.insertBefore(button, actions.children[0] ?? null);
 }
 
-/** Drops a project from Recents until it has activity newer than now. */
+/** Drops a project from Recents until it has activity newer than now, on its own daemon. */
 function hideFromRecents(key: string): void {
-  const state = view();
+  const daemon = store.daemonOfKey(key);
+  if (!daemon) return;
+  const state = store.getState(daemon);
   const now = Date.now();
   // Past the longest window a hide can no longer matter, so old entries are dropped.
   const oldest = now - MAX_RECENT_HOURS * 60 * 60 * 1000;
   const hidden = Object.fromEntries(Object.entries(state.recentHidden ?? {}).filter(([, at]) => at >= oldest));
-  setView({
-    ...state,
-    recentHidden: { ...hidden, [key]: now },
-    recentOrder: (state.recentOrder ?? []).filter((k) => k !== key),
-  });
+  const recentRank = { ...(state.recentRank ?? {}) };
+  delete recentRank[key];
+  store.setState(daemon, { ...state, recentHidden: { ...hidden, [key]: now }, recentRank });
 }
 
 /** Keeps presses on the hide button away from the project row (open, drag, context menu). */
@@ -692,7 +725,7 @@ function updateRings(): void {
   const bar = document.querySelector(`#${BAR_ID}`);
   if (!bar) return;
   const recentCircle = bar.querySelector('[data-ring-key="recent"]');
-  if (recentCircle) paintRing(recentCircle, ringStateOf(state.recentOrder ?? []));
+  if (recentCircle) paintRing(recentCircle, ringStateOf(store.recentKeys()));
   for (const cluster of state.clusters) {
     const el = bar.querySelector(`[data-cluster-id="${cluster.id}"]`);
     if (el) paintRing(el, ringStateOf(cluster.projects));
@@ -837,7 +870,7 @@ function restingRect(el: El): { left: number; top: number; bottom: number; width
 /** The manually ordered list behind the current view: a cluster's projects or "Recientes". */
 function activeOrder(): string[] | null {
   const state = view();
-  if (state.active === null) return state.recentOrder ?? [];
+  if (state.active === null) return store.recentKeys();
   return state.clusters.find((c) => c.id === state.active)?.projects ?? null;
 }
 
@@ -909,8 +942,18 @@ function reorderInCluster(dragKey: string, slot: DropSlot): void {
   const ordered = [...slot.keys];
   ordered.splice(slot.index, 0, dragKey);
   if (state.active === null) {
-    const rest = (state.recentOrder ?? []).filter((key) => !ordered.includes(key));
-    setView({ ...state, recentOrder: [...ordered, ...rest] });
+    // Recents spans daemons, so only the dragged project moves: it takes a rank between the two
+    // it was dropped among, and that rank is written to its own daemon.
+    const above = slot.keys[slot.index - 1];
+    const below = slot.keys[slot.index];
+    const rankAbove = above === undefined ? undefined : store.rankOf(above);
+    const rankBelow = below === undefined ? undefined : store.rankOf(below);
+    let rank: number;
+    if (rankAbove === undefined && rankBelow === undefined) rank = store.topRank() + store.RANK_STEP;
+    else if (rankAbove === undefined) rank = (rankBelow as number) + store.RANK_STEP;
+    else if (rankBelow === undefined) rank = rankAbove - store.RANK_STEP;
+    else rank = (rankAbove + rankBelow) / 2;
+    store.setRanks(new Map([[dragKey, rank]]));
     return;
   }
   const cluster = state.clusters.find((c) => c.id === state.active);
@@ -1240,6 +1283,7 @@ interface Owner {
   connectDaemon: typeof connectDaemon;
   disconnectDaemon: typeof disconnectDaemon;
   focusDaemon: typeof focusDaemon;
+  registerProjects: typeof registerProjects;
   setWorkspaceActivity: typeof setWorkspaceActivity;
   touchWorkspace: typeof touchWorkspace;
   removeWorkspace: typeof removeWorkspace;
@@ -1267,6 +1311,7 @@ function otherOwner(): Owner | null {
     connectDaemon,
     disconnectDaemon,
     focusDaemon,
+    registerProjects,
     setWorkspaceActivity,
     touchWorkspace,
     removeWorkspace,

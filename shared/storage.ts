@@ -12,6 +12,12 @@ export const clusterSchema = z.object({
 /** Only what every client shares; the selected view stays local to each app. */
 export const stateSchema = z.object({
   clusters: z.array(clusterSchema),
+  /**
+   * Where each project sits in Recents, as a sortable mark. The sidebar mixes projects from every
+   * connected daemon, so each daemon keeps the marks of its own and the client merges them.
+   */
+  recentRank: z.record(z.string(), z.number()).optional(),
+  /** The same order as a list, for clients older than 0.3.0. */
   recentOrder: z.array(z.string()).optional(),
   /** How long a project stays in Recents, in hours (1–48). */
   recentHours: z.number().int().min(1).max(48).optional(),

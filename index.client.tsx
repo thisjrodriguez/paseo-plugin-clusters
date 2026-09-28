@@ -3,7 +3,7 @@ import { ClustersSurface } from "./client/clusters";
 import { t } from "./client/web";
 import { type AgentLike, toMs, usedAt } from "./shared/activity";
 import { readState, writeState } from "./shared/storage";
-import { type WorkspaceStatus, connectDaemon, disconnectDaemon, isWeb, removeWorkspace, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
+import { type Daemon, type WorkspaceStatus, connectDaemon, disconnectDaemon, isWeb, registerProjects, removeWorkspace, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
 
 /** Fallback resync; live updates arrive through the subscriptions below. */
 const RESYNC_MS = 60_000;
@@ -16,17 +16,24 @@ interface WorkspaceLike {
 }
 
 /** The daemon's own workspace activity, when it has one; the status clock is not activity. */
-function recordWorkspace(w: WorkspaceLike): void {
-  setWorkspaceActivity(w.id, {
+function recordWorkspace(daemon: Daemon, w: WorkspaceLike): void {
+  setWorkspaceActivity(daemon, w.id, {
     at: toMs(w.activityAt),
     projectPath: w.projectRootPath.toLowerCase(),
     status: w.status ?? null,
   });
 }
 
-function recordAgent(agent: AgentLike): void {
+function recordAgent(daemon: Daemon, agent: AgentLike): void {
   const at = usedAt(agent);
-  if (agent.workspaceId && at) touchWorkspace(agent.workspaceId, at);
+  if (agent.workspaceId && at) touchWorkspace(daemon, agent.workspaceId, at);
+}
+
+/** The sidebar keys this daemon owns. Local projects are matched by path, the rest by key. */
+function sidebarKey(project: { projectKey?: string | null; projectId: string }): string | null {
+  const id = project.projectKey ?? project.projectId;
+  const isLocalPath = /^[a-z]:[\\/]/i.test(id) || id.startsWith("/");
+  return isLocalPath ? null : `remote:${id.replace(/^remote:/, "")}`;
 }
 
 export default function contribute(client: PluginClientContext) {
@@ -67,7 +74,7 @@ export default function contribute(client: PluginClientContext) {
   const resyncWorkspaces = async () => {
     try {
       const { entries } = await client.paseo.workspaces.list();
-      for (const w of entries) recordWorkspace(w);
+      for (const w of entries) recordWorkspace(daemon, w);
     } catch (error) {
       console.warn("[paseo-clusters] Could not read workspace activity", error);
     }
@@ -78,19 +85,19 @@ export default function contribute(client: PluginClientContext) {
   const resyncAgents = async () => {
     try {
       const { entries } = await client.paseo.agents.list();
-      for (const entry of entries) recordAgent(entry.agent);
+      for (const entry of entries) recordAgent(daemon, entry.agent);
     } catch (error) {
       console.warn("[paseo-clusters] Could not read agent activity", error);
     }
   };
 
   const stopWorkspaces = client.paseo.workspaces.subscribe((update) => {
-    if (update.kind === "upsert") recordWorkspace(update.workspace);
+    if (update.kind === "upsert") recordWorkspace(daemon, update.workspace);
     else if ("id" in update && typeof update.id === "string") removeWorkspace(update.id);
   });
   const stopAgents = client.paseo.agents.subscribe((update) => {
     if (update.kind !== "upsert") return;
-    recordAgent(update.agent);
+    recordAgent(daemon, update.agent);
   });
 
   // Ask the daemon to stream workspace changes for as long as the plugin runs.
@@ -99,16 +106,29 @@ export default function contribute(client: PluginClientContext) {
   client.paseo.workspaces
     .list({ subscribe: {} })
     .then((result) => {
-      for (const w of result.entries) recordWorkspace(w);
+      for (const w of result.entries) recordWorkspace(daemon, w);
       release = () => result.subscription.release();
       if (released) void release();
     })
     .catch((error: unknown) => console.warn("[paseo-clusters] No live subscription", error));
 
+  // Which projects this daemon owns, so the sidebar can tell whose each row is.
+  const resyncProjects = async () => {
+    try {
+      const { projects } = await client.paseo.projects.list();
+      const keys = projects.map(sidebarKey).filter((key): key is string => key !== null);
+      registerProjects(daemon, keys);
+    } catch (error) {
+      console.warn("[paseo-clusters] Could not read the project list", error);
+    }
+  };
+
   void resyncAgents();
+  void resyncProjects();
   const timer = setInterval(() => {
     void resyncWorkspaces();
     void resyncAgents();
+    void resyncProjects();
   }, RESYNC_MS);
 
   return () => {

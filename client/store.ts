@@ -21,7 +21,13 @@ export interface Cluster {
 export interface ClusterState {
   clusters: Cluster[];
   active: string | null;
-  /** Manual order of "Recientes": new projects enter on top, existing ones keep their place. */
+  /**
+   * Where each project sits in "Recientes", as a sortable mark (higher is nearer the top). The
+   * sidebar mixes projects from every connected daemon, so the position has to survive being
+   * merged with another daemon's: a plain list could not be interleaved, a mark can.
+   */
+  recentRank?: Record<string, number>;
+  /** The same order as a list, for clients older than 0.3.0. Derived from `recentRank` on write. */
   recentOrder?: string[];
   /** How long a project stays in Recents, in hours (1–48, default 24). */
   recentHours?: number;
@@ -32,6 +38,7 @@ export interface ClusterState {
 /** The part stored on the daemon and shared between its clients; `active` stays local to each app. */
 export interface SharedState {
   clusters: Cluster[];
+  recentRank?: Record<string, number>;
   recentOrder?: string[];
   recentHours?: number;
   recentHidden?: Record<string, number>;
@@ -81,6 +88,10 @@ interface Entry extends Daemon {
 }
 
 const entries = new Map<Daemon, Entry>();
+/** Which daemon owns a sidebar project, learned from what each daemon reports about itself. */
+const daemonByPath = new Map<string, Daemon>();
+const daemonByKey = new Map<string, Daemon>();
+const daemonByHost = new Map<string, Daemon>();
 const listeners = new Set<() => void>();
 let current: Entry | null = null;
 let persistence: Persistence | null = null;
@@ -120,7 +131,7 @@ function loadCache(serverId: string): ClusterState {
   try {
     const raw = persistence?.read(cacheKey(serverId)) ?? null;
     const parsed = JSON.parse(raw ?? "null") as ClusterState | null;
-    if (parsed && Array.isArray(parsed.clusters)) return { ...parsed, clusters: dedupe(parsed.clusters) };
+    if (parsed && Array.isArray(parsed.clusters)) return withRanks({ ...parsed, clusters: dedupe(parsed.clusters) });
   } catch {
     // Corrupt storage falls back to an empty state.
   }
@@ -132,10 +143,26 @@ function saveCache(entry: Entry): void {
   persistence?.write(cacheKey(entry.serverId), JSON.stringify(entry.state));
 }
 
+/** A state from before 0.3.0 carries the order as a list; read it as ranks, top of the list first. */
+function withRanks(state: ClusterState): ClusterState {
+  if (state.recentRank || !state.recentOrder?.length) return state;
+  const order = state.recentOrder;
+  const recentRank: Record<string, number> = {};
+  for (const [i, key] of order.entries()) recentRank[key] = (order.length - i) * RANK_STEP;
+  return { ...state, recentRank };
+}
+
+/** The ranks as the list older clients still read. */
+function orderOfRanks(recentRank: Record<string, number> | undefined): string[] {
+  return Object.entries(recentRank ?? {})
+    .sort((a, b) => b[1] - a[1])
+    .map(([key]) => key);
+}
+
 function sameShared(a: ClusterState, b: ClusterState): boolean {
   return (
     JSON.stringify(a.clusters) === JSON.stringify(b.clusters) &&
-    JSON.stringify(a.recentOrder ?? []) === JSON.stringify(b.recentOrder ?? []) &&
+    JSON.stringify(a.recentRank ?? {}) === JSON.stringify(b.recentRank ?? {}) &&
     (a.recentHours ?? DEFAULT_RECENT_HOURS) === (b.recentHours ?? DEFAULT_RECENT_HOURS) &&
     JSON.stringify(a.recentHidden ?? {}) === JSON.stringify(b.recentHidden ?? {})
   );
@@ -149,7 +176,8 @@ function push(entry: Entry): void {
     if (entry.stopped) return;
     const shared: SharedState = {
       clusters: entry.state.clusters,
-      recentOrder: entry.state.recentOrder,
+      recentRank: entry.state.recentRank,
+      recentOrder: orderOfRanks(entry.state.recentRank),
       recentHours: entry.state.recentHours,
       recentHidden: entry.state.recentHidden,
       revision: entry.revision,
@@ -181,8 +209,10 @@ function adopt(entry: Entry, incoming: SharedState): void {
   if (shared.revision < entry.revision) return;
   entry.revision = shared.revision;
   const active = entry.state.active;
+  const ranked = withRanks({ ...entry.state, recentRank: shared.recentRank, recentOrder: shared.recentOrder });
   entry.state = {
     clusters: dedupe(shared.clusters),
+    recentRank: ranked.recentRank,
     recentOrder: shared.recentOrder,
     recentHours: shared.recentHours,
     recentHidden: shared.recentHidden,
@@ -252,6 +282,9 @@ export function stopDaemon(daemon: Daemon): void {
   if (entry.pollTimer !== null) clearInterval(entry.pollTimer);
   if (entry.pushTimer !== null) clearTimeout(entry.pushTimer);
   entries.delete(daemon);
+  for (const [path, owner] of daemonByPath) if (owner === daemon) daemonByPath.delete(path);
+  for (const [key, owner] of daemonByKey) if (owner === daemon) daemonByKey.delete(key);
+  for (const [host, owner] of daemonByHost) if (owner === daemon) daemonByHost.delete(host);
   if (current === entry) current = entries.values().next().value ?? null;
   notify();
 }
@@ -286,9 +319,100 @@ export function setState(daemon: Daemon | null, next: ClusterState): void {
   notify();
 }
 
+/** The projects of one daemon, as the sidebar keys them. Local ones are matched by path. */
+export function registerProjectPath(daemon: Daemon, path: string): void {
+  if (path && entries.has(daemon)) daemonByPath.set(path, daemon);
+}
+
+export function registerProjectKey(daemon: Daemon, key: string): void {
+  if (key && entries.has(daemon)) daemonByKey.set(key, daemon);
+}
+
+/**
+ * The daemon a sidebar project belongs to. Local keys carry the app's own id for the host, which
+ * the app never tells plugins; matching one project's path to the daemon that reported it names
+ * that id for every other key under it.
+ */
+export function daemonOfKey(key: string): Daemon | null {
+  const known = daemonByKey.get(key);
+  if (known) return entries.has(known) ? known : null;
+  const local = /^host:([^:]+):(.*)$/.exec(key);
+  if (!local) return null;
+  const [, host, path] = local;
+  const byPath = daemonByPath.get(path);
+  if (byPath && entries.has(byPath)) {
+    daemonByHost.set(host, byPath);
+    return byPath;
+  }
+  const byHost = daemonByHost.get(host);
+  return byHost && entries.has(byHost) ? byHost : null;
+}
+
+/** Reading and writing one project's Recents state on the daemon that owns it. */
+export function stateOfKey(key: string): ClusterState | null {
+  const daemon = daemonOfKey(key);
+  return daemon ? getState(daemon) : null;
+}
+
+export const RANK_STEP = 1000;
+
+export function rankOf(key: string): number | undefined {
+  return stateOfKey(key)?.recentRank?.[key];
+}
+
+/** Every project in Recents across the connected daemons, nearest the top first. */
+export function recentKeys(): string[] {
+  const ranked: { key: string; rank: number }[] = [];
+  for (const entry of entries.values()) {
+    for (const [key, rank] of Object.entries(entry.state.recentRank ?? {})) ranked.push({ key, rank });
+  }
+  return ranked.sort((a, b) => b.rank - a.rank).map((r) => r.key);
+}
+
+/** Highest rank in use anywhere, so a project entering Recents lands on top of all of them. */
+export function topRank(): number {
+  let top = 0;
+  for (const entry of entries.values()) {
+    for (const rank of Object.values(entry.state.recentRank ?? {})) top = Math.max(top, rank);
+  }
+  return top;
+}
+
+/** Writes ranks home: each project's rank is stored on its own daemon, never on another. */
+export function setRanks(changes: Map<string, number | null>): void {
+  const byDaemon = new Map<Daemon, Map<string, number | null>>();
+  for (const [key, rank] of changes) {
+    const daemon = daemonOfKey(key);
+    if (!daemon) continue;
+    const group = byDaemon.get(daemon) ?? new Map<string, number | null>();
+    group.set(key, rank);
+    byDaemon.set(daemon, group);
+  }
+  for (const [daemon, group] of byDaemon) {
+    const state = getState(daemon);
+    const next = { ...(state.recentRank ?? {}) };
+    let changed = false;
+    for (const [key, rank] of group) {
+      if (rank === null) {
+        if (key in next) {
+          delete next[key];
+          changed = true;
+        }
+      } else if (next[key] !== rank) {
+        next[key] = rank;
+        changed = true;
+      }
+    }
+    if (changed) setState(daemon, { ...state, recentRank: next });
+  }
+}
+
 /** Test seam: drops every daemon and listener. */
 export function resetStore(): void {
   for (const daemon of Array.from(entries.keys())) stopDaemon(daemon);
+  daemonByPath.clear();
+  daemonByKey.clear();
+  daemonByHost.clear();
   listeners.clear();
   current = null;
   persistence = null;

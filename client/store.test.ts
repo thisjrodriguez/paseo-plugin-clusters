@@ -4,6 +4,12 @@ import {
   type Cluster,
   type SharedState,
   currentDaemon,
+  daemonOfKey,
+  recentKeys,
+  registerProjectKey,
+  registerProjectPath,
+  setRanks,
+  topRank,
   focusDaemon,
   getState,
   pull,
@@ -126,4 +132,75 @@ test("a daemon that goes quiet leaves nothing behind for the next one", async ()
   await settle();
   assert.deepEqual(getState(b).clusters, []);
   assert.deepEqual(theirs.writes, []);
+});
+
+test("a project is traced back to the daemon that reported it", async () => {
+  setPersistence(null);
+  const mine = fakeDaemon("mine", { clusters: [], revision: 1 });
+  const theirs = fakeDaemon("theirs", { clusters: [], revision: 1 });
+  const a = startDaemon(mine.sync, { pollMs: 0 });
+  const b = startDaemon(theirs.sync, { pollMs: 0 });
+  await settle();
+
+  registerProjectPath(a, "/home/me/work");
+  registerProjectPath(b, "/srv/theirs");
+  registerProjectKey(b, "remote:github.com/them/app");
+
+  assert.equal(daemonOfKey("host:app-1:/home/me/work"), a);
+  assert.equal(daemonOfKey("host:app-2:/srv/theirs"), b);
+  assert.equal(daemonOfKey("remote:github.com/them/app"), b);
+  // One matched path names the app's id for that host, so its other projects resolve too.
+  assert.equal(daemonOfKey("host:app-1:/home/me/other"), a);
+  assert.equal(daemonOfKey("host:unknown:/nowhere"), null);
+});
+
+test("Recents spans every connected daemon, each rank stored on its own", async () => {
+  setPersistence(null);
+  const mine = fakeDaemon("mine", { clusters: [], revision: 1 });
+  const theirs = fakeDaemon("theirs", { clusters: [], revision: 1 });
+  const a = startDaemon(mine.sync, { pollMs: 0 });
+  const b = startDaemon(theirs.sync, { pollMs: 0 });
+  await settle();
+  registerProjectPath(a, "/home/me/work");
+  registerProjectPath(b, "/srv/theirs");
+  const keyA = "host:app-1:/home/me/work";
+  const keyB = "host:app-2:/srv/theirs";
+
+  setRanks(new Map([[keyA, 1000], [keyB, 2000]]));
+
+  // The bar shows both, the higher rank first.
+  assert.deepEqual(recentKeys(), [keyB, keyA]);
+  assert.equal(topRank(), 2000);
+  // Each daemon only ever holds its own project.
+  assert.deepEqual(Object.keys(getState(a).recentRank ?? {}), [keyA]);
+  assert.deepEqual(Object.keys(getState(b).recentRank ?? {}), [keyB]);
+
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.deepEqual(Object.keys(mine.writes[0].recentRank ?? {}), [keyA]);
+  assert.deepEqual(Object.keys(theirs.writes[0].recentRank ?? {}), [keyB]);
+  // The list older clients read says the same thing, for that daemon's share of it.
+  assert.deepEqual(mine.writes[0].recentOrder, [keyA]);
+});
+
+test("a project whose daemon is unknown is not filed anywhere", async () => {
+  setPersistence(null);
+  const mine = fakeDaemon("mine", { clusters: [], revision: 1 });
+  const a = startDaemon(mine.sync, { pollMs: 0 });
+  await settle();
+
+  setRanks(new Map([["host:somewhere-else:/not/mine", 1000]]));
+
+  assert.deepEqual(recentKeys(), []);
+  assert.deepEqual(getState(a).recentRank ?? {}, {});
+});
+
+test("an order saved by an older client is read as ranks, top first", async () => {
+  setPersistence(null);
+  const keys = ["host:app-1:/a", "host:app-1:/b", "host:app-1:/c"];
+  const mine = fakeDaemon("mine", { clusters: [], recentOrder: keys, revision: 4 });
+  const a = startDaemon(mine.sync, { pollMs: 0 });
+  await settle();
+  registerProjectPath(a, "/a");
+
+  assert.deepEqual(recentKeys(), keys);
 });

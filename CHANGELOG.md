@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0
+
+- Recents only listed projects of one daemon. The sidebar mixes projects from every connected
+  daemon, but since 0.2.0 the bar read the state of a single one, and its "must belong to a
+  cluster" rule was checked against that daemon's clusters — so with a local daemon plus a remote
+  one, only the local projects came through.
+- Recents now spans every connected daemon. Each project is traced back to the daemon that
+  reported it (by path for local projects, by key for the rest), and is judged by that daemon's
+  window, its hidden list and its clusters.
+- Each project's place in Recents is written to its own daemon and nowhere else. The order is
+  stored as a sortable mark per project (`recentRank`) instead of a list, because two daemons'
+  lists cannot be interleaved but their marks can. An order saved by an older client is read as
+  marks, and the list is still written alongside for clients older than this one.
+- A project that appears while a cluster is selected now only joins that cluster if it belongs to
+  the same daemon.
+
 ## 0.2.2
 
 - Recents listed projects that had not been used in days. It took "the record changed" for "the
