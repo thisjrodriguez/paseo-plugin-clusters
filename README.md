@@ -19,7 +19,8 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
   list down to its projects.
 - **Recents.** Projects used recently (24 hours by default, adjustable from 1 to 48 in the Clusters
   screen). A project enters at the top once, then keeps its place until you drag it elsewhere, and
-  drops out once that time passes without use. A project on the list keeps all of its sessions.
+  drops out once that time passes without use — use being your last message to one of its
+  sessions. A project on the list keeps all of its sessions.
 - **Hide from Recents.** Hover a project in Recents and press the crossed-out eye next to "+" and
   "⋯" to drop it from the list until it is used again.
 - **All.** The full list, exactly as Paseo shows it.

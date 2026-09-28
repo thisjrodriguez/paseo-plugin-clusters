@@ -1,31 +1,32 @@
 import type { PluginClientContext, PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { ClustersSurface } from "./client/clusters";
 import { t } from "./client/web";
+import { type AgentLike, toMs, usedAt } from "./shared/activity";
 import { readState, writeState } from "./shared/storage";
 import { type WorkspaceStatus, connectDaemon, disconnectDaemon, isWeb, removeWorkspace, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
 
 /** Fallback resync; live updates arrive through the subscriptions below. */
 const RESYNC_MS = 60_000;
 
-function toMs(value: string | null | undefined): number {
-  const at = Date.parse(value ?? "");
-  return Number.isNaN(at) ? 0 : at;
-}
-
 interface WorkspaceLike {
   id: string;
   projectRootPath: string;
   activityAt?: string | null;
-  statusEnteredAt?: string | null;
   status?: WorkspaceStatus;
 }
 
+/** The daemon's own workspace activity, when it has one; the status clock is not activity. */
 function recordWorkspace(w: WorkspaceLike): void {
   setWorkspaceActivity(w.id, {
-    at: Math.max(toMs(w.activityAt), toMs(w.statusEnteredAt)),
+    at: toMs(w.activityAt),
     projectPath: w.projectRootPath.toLowerCase(),
     status: w.status ?? null,
   });
+}
+
+function recordAgent(agent: AgentLike): void {
+  const at = usedAt(agent);
+  if (agent.workspaceId && at) touchWorkspace(agent.workspaceId, at);
 }
 
 export default function contribute(client: PluginClientContext) {
@@ -63,7 +64,7 @@ export default function contribute(client: PluginClientContext) {
     };
   }
 
-  const resync = async () => {
+  const resyncWorkspaces = async () => {
     try {
       const { entries } = await client.paseo.workspaces.list();
       for (const w of entries) recordWorkspace(w);
@@ -72,14 +73,24 @@ export default function contribute(client: PluginClientContext) {
     }
   };
 
+  // Recents needs the last use of every project from the start, not only the changes that happen
+  // to arrive while the app is open.
+  const resyncAgents = async () => {
+    try {
+      const { entries } = await client.paseo.agents.list();
+      for (const entry of entries) recordAgent(entry.agent);
+    } catch (error) {
+      console.warn("[paseo-clusters] Could not read agent activity", error);
+    }
+  };
+
   const stopWorkspaces = client.paseo.workspaces.subscribe((update) => {
     if (update.kind === "upsert") recordWorkspace(update.workspace);
     else if ("id" in update && typeof update.id === "string") removeWorkspace(update.id);
   });
   const stopAgents = client.paseo.agents.subscribe((update) => {
-    if (update.kind !== "upsert" || !update.agent.workspaceId) return;
-    const at = Math.max(toMs(update.agent.updatedAt), toMs(update.agent.lastUserMessageAt));
-    touchWorkspace(update.agent.workspaceId, at || Date.now());
+    if (update.kind !== "upsert") return;
+    recordAgent(update.agent);
   });
 
   // Ask the daemon to stream workspace changes for as long as the plugin runs.
@@ -94,7 +105,11 @@ export default function contribute(client: PluginClientContext) {
     })
     .catch((error: unknown) => console.warn("[paseo-clusters] No live subscription", error));
 
-  const timer = setInterval(() => void resync(), RESYNC_MS);
+  void resyncAgents();
+  const timer = setInterval(() => {
+    void resyncWorkspaces();
+    void resyncAgents();
+  }, RESYNC_MS);
 
   return () => {
     released = true;

@@ -1,12 +1,13 @@
 {
   "name": "@thisjrodriguez/paseo-plugin-clusters",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "files": [
     "paseo-plugin.json",
     "index.client.tsx",
     "index.server.ts",
     "client/",
     "!client/*.test.ts",
+    "!shared/*.test.ts",
     "server/",
     "shared/",
     "CHANGELOG.md",
@@ -16,7 +17,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test client/*.test.ts"
+    "test": "node --test client/*.test.ts shared/*.test.ts"
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.9.0-beta.1",

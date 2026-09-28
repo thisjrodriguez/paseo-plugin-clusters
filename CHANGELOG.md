@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.2
+
+- Recents listed projects that had not been used in days. It took "the record changed" for "the
+  user used this": the last-use time came from the agent's `updatedAt` and the workspace's
+  `statusEnteredAt`, and the daemon rewrites every agent record when it restarts and re-derives
+  workspace status from scratch. One restart stamped every project with the current time, so they
+  all landed in Recents no matter how short the window.
+- Use is now the user's own mark: the last message sent to a session, or when the session was
+  created. Recents also seeds itself from the agent list on start and on every resync, instead of
+  waiting for changes to arrive.
+
 ## 0.2.1
 
 - Recents showed only part of a project's sessions: any session last used outside the window was
