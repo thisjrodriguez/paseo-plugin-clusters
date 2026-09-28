@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3
+
+- No more fighting over the bar while daemons are still being updated. A copy from 0.3.3 on stands
+  down if one too old to agree on who draws is already drawing, instead of drawing on top of it.
+  The sidebar keeps the older copy's behaviour until every daemon is updated and the app reloads,
+  but nothing is stranded on screen in the meantime.
+- A tooltip left behind by another copy is hidden when the bar mounts.
+
 ## 0.3.2
 
 - A tooltip could stay on screen for good. Redrawing the circles replaces the one under the

@@ -561,11 +561,29 @@ interface CircleOptions {
 }
 
 let tooltip: El | null = null;
+const TOOLTIP_ATTR = "data-paseo-clusters-tooltip";
+
+/**
+ * Hides a tooltip left behind by another copy of the plugin. Its circle is gone, so its mouseleave
+ * can never arrive and nothing else will ever hide it. Hidden rather than removed: the element
+ * belongs to that copy, not to this one.
+ */
+function dismissStrayTooltips(): void {
+  // Copies before 0.3.2 left theirs untagged; they are still ours by shape.
+  const strays = [
+    ...Array.from(document.querySelectorAll(`[${TOOLTIP_ATTR}]`)),
+    ...Array.from(document.querySelectorAll('[role="tooltip"][style*="99999"]')),
+  ];
+  for (const stray of strays) {
+    if (stray !== tooltip) stray.style.display = "none";
+  }
+}
 
 function showTooltip(anchor: El, text: string): void {
   if (!tooltip) {
     tooltip = document.createElement("div");
     tooltip.setAttribute("role", "tooltip");
+    tooltip.setAttribute(TOOLTIP_ATTR, "");
     Object.assign(tooltip.style, {
       position: "fixed",
       zIndex: "99999",
@@ -1194,6 +1212,7 @@ export function startSidebarClusters(daemon: Daemon, onAdd: () => void): () => v
   // Unversioned on purpose: while daemons are updated one at a time the page holds copies of
   // several versions, and two of them drawing the same bar fight over it, stranding tooltips and
   // doubling the drag handlers. Whichever claims it first draws; the rest wait for a reload.
+  if (olderCopyIsDrawing()) return release;
   const slot = sidebarSlot();
   slot[SIDEBAR_KEY] ??= self;
   if (slot[SIDEBAR_KEY] !== self) return release;
@@ -1226,6 +1245,17 @@ function releaseSidebar(daemon: Daemon): void {
 
 /** Who is drawing the bar. Never rename this key: copies of every version must see the same one. */
 const SIDEBAR_KEY = "__paseoClustersSidebar";
+/** The slot copies before 0.3.1 claimed. They only ever share a page with us mid-upgrade. */
+const LEGACY_OWNER_KEY = "__paseoClustersOwner";
+
+/**
+ * A copy too old to agree on who draws the bar is already drawing it. Both drawing means fighting
+ * over the same element, so this one stands down and leaves the sidebar alone until a reload,
+ * once every daemon serves a version that knows how to share.
+ */
+function olderCopyIsDrawing(): boolean {
+  return (globalThis as Record<string, unknown>)[LEGACY_OWNER_KEY] !== undefined;
+}
 
 function sidebarSlot(): { [SIDEBAR_KEY]?: Owner | null } {
   return globalThis as unknown as { [SIDEBAR_KEY]?: Owner | null };
@@ -1250,6 +1280,7 @@ function runSidebar(): () => void {
     if (bar) renderBar(bar, openCurrent);
     applyFilter();
   });
+  dismissStrayTooltips();
   // Registered first so its capture listeners run before the drag handlers below.
   const stopHide = startHideButton();
   sync();
