@@ -1285,7 +1285,12 @@ interface Owner {
   startSidebarClusters: typeof startSidebarClusters;
 }
 
-const OWNER_KEY = "__paseoClustersOwner";
+/**
+ * Versioned: while daemons are being updated one at a time, copies of different versions run in
+ * the same page. An older copy owning the slot cannot answer what a newer one asks of it, so they
+ * take separate slots and each runs on its own until every daemon is on the same version.
+ */
+const OWNER_KEY = "__paseoClustersOwner:3";
 let self: Owner | null = null;
 
 function ownerSlot(): { [OWNER_KEY]?: Owner } {
@@ -1313,7 +1318,8 @@ function otherOwner(): Owner | null {
     startSidebarClusters,
   };
   const slot = ownerSlot();
-  if (!slot[OWNER_KEY]) slot[OWNER_KEY] = self;
+  // Anything in the slot that cannot answer this version's calls is treated as absent.
+  if (!slot[OWNER_KEY] || typeof slot[OWNER_KEY]?.connectDaemon !== "function") slot[OWNER_KEY] = self;
   return slot[OWNER_KEY] === self ? null : (slot[OWNER_KEY] ?? null);
 }
 

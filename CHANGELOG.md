@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+- Copies of different versions could not share a page. While daemons are updated one at a time,
+  the app runs one copy of the plugin per daemon, and they all defer to whichever loaded first.
+  A newer copy asking an older one for something it does not have threw, and that daemon's
+  clusters never appeared. Each version now takes its own slot and runs on its own until every
+  daemon is on the same one.
+
 ## 0.3.0
 
 - Recents only listed projects of one daemon. The sidebar mixes projects from every connected
