@@ -727,6 +727,9 @@ function updateRings(): void {
 }
 
 function renderBar(bar: El, onAdd: () => void): void {
+  // The circle under the pointer is about to be replaced, so its mouseleave will never arrive
+  // and its tooltip would stay on screen for good.
+  hideTooltip();
   const state = view();
   const setActive = (id: string | null) => setView({ ...state, active: id });
   bar.replaceChildren(
@@ -1188,6 +1191,12 @@ export function startSidebarClusters(daemon: Daemon, onAdd: () => void): () => v
   if (!isWeb) return release;
   sidebarUsers += 1;
   if (sidebarUsers > 1) return release;
+  // Unversioned on purpose: while daemons are updated one at a time the page holds copies of
+  // several versions, and two of them drawing the same bar fight over it, stranding tooltips and
+  // doubling the drag handlers. Whichever claims it first draws; the rest wait for a reload.
+  const slot = sidebarSlot();
+  slot[SIDEBAR_KEY] ??= self;
+  if (slot[SIDEBAR_KEY] !== self) return release;
   stopSidebar = runSidebar();
   return release;
 }
@@ -1210,7 +1219,16 @@ function releaseSidebar(daemon: Daemon): void {
   if (sidebarUsers > 0) return;
   stopSidebar?.();
   stopSidebar = null;
+  const slot = sidebarSlot();
+  if (slot[SIDEBAR_KEY] === self) delete slot[SIDEBAR_KEY];
   releaseOwnership();
+}
+
+/** Who is drawing the bar. Never rename this key: copies of every version must see the same one. */
+const SIDEBAR_KEY = "__paseoClustersSidebar";
+
+function sidebarSlot(): { [SIDEBAR_KEY]?: Owner | null } {
+  return globalThis as unknown as { [SIDEBAR_KEY]?: Owner | null };
 }
 
 function runSidebar(): () => void {

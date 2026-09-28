@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2
+
+- A tooltip could stay on screen for good. Redrawing the circles replaces the one under the
+  pointer, so its mouseleave never arrives and nothing ever hid the tooltip. The bar now hides it
+  before redrawing.
+- Only one copy of the plugin draws the bar, whatever version it is. 0.3.1 let copies of different
+  versions run side by side, and two of them drawing the same bar fought over it, which is what
+  stranded the tooltips and doubled the drag handlers. Copies from 0.3.2 on agree on who draws;
+  the rest wait for a reload.
+
 ## 0.3.1
 
 - Copies of different versions could not share a page. While daemons are updated one at a time,
