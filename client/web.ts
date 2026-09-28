@@ -336,14 +336,6 @@ function preferencesTarget(): El | null {
   return el;
 }
 
-/** How long this project stays in Recents: its own daemon's window, not the one being viewed. */
-function cutoffOf(key: string): number {
-  const state = store.stateOfKey(key) ?? view();
-  const hours = state.recentHours ?? DEFAULT_RECENT_HOURS;
-  const clamped = Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, Math.round(hours)));
-  return Date.now() - clamped * 60 * 60 * 1000;
-}
-
 /**
  * Whether a project belongs in Recents, judged against its own daemon: its window, the projects
  * it hid, and its clusters. The sidebar mixes daemons, so asking the viewed one would drop every
@@ -394,6 +386,9 @@ function applyFilter(): void {
   adoptNewProjects(groups);
   const recent = state.active === null;
   const cluster = state.clusters.find((c) => c.id === state.active) ?? null;
+  // One window for the whole bar, the one set on the daemon it is anchored to. Recents mixes
+  // daemons, and a project ageing out on a clock the user cannot see from here reads as a bug.
+  const cutoff = Date.now() - recentHours() * 60 * 60 * 1000;
   const latestByKey = new Map<string, number>();
 
   for (const { group, key } of groups) {
@@ -407,7 +402,6 @@ function applyFilter(): void {
     if (path) {
       for (const [id, info] of activity) if (info.projectPath === path) known.add(id);
     }
-    const cutoff = cutoffOf(key);
     for (const id of known) {
       const at = activityAt(id);
       if (at >= cutoff) latest = Math.max(latest, at);

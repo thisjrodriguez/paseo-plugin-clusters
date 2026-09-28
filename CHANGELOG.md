@@ -8,7 +8,8 @@
   one, only the local projects came through.
 - Recents now spans every connected daemon. Each project is traced back to the daemon that
   reported it (by path for local projects, by key for the rest), and is judged by that daemon's
-  window, its hidden list and its clusters.
+  hidden list and clusters. The window is one for the whole bar: the one set on the daemon the bar
+  is anchored to.
 - Each project's place in Recents is written to its own daemon and nowhere else. The order is
   stored as a sortable mark per project (`recentRank`) instead of a list, because two daemons'
   lists cannot be interleaved but their marks can. An order saved by an older client is read as

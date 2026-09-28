@@ -36,8 +36,9 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
   clusters of the one you are looking at, and an edit is written to that daemon alone. The selected
   circle stays per client.
 - **Recents spans your daemons.** The sidebar lists projects from every connected daemon, and so
-  does Recents. Each project keeps its place on the daemon that owns it, judged by that daemon's
-  window and clusters, so nothing of yours is written anywhere else.
+  does Recents. Each project keeps its place on the daemon that owns it, so nothing of yours is
+  written anywhere else. The time window is one for the whole bar: the one set on the daemon the
+  bar is anchored to.
 - **English and Spanish**, following the client's language, with a picker in the cluster form.
 
 ## Limitations

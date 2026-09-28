@@ -36,8 +36,9 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
   muestra los del que estás viendo y los cambios se escriben solo en ese daemon. La vista
   seleccionada es de cada cliente.
 - **Recientes abarca todos tus daemons.** La barra lateral lista proyectos de todos los daemons
-  conectados, y Recientes también. Cada proyecto guarda su sitio en el daemon que lo sirve, con la
-  ventana y los clusters de ese daemon, así que nada tuyo se escribe en otro.
+  conectados, y Recientes también. Cada proyecto guarda su sitio en el daemon que lo sirve, así que
+  nada tuyo se escribe en otro. La ventana de tiempo es una para toda la barra: la del daemon al
+  que está anclada.
 
 ## Limitaciones
 
