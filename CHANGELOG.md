@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4
+
+- Recents no longer hides projects that are in no cluster. Once a single project had been filed
+  into a cluster, every unfiled project on that daemon dropped out of Recents and was pruned from
+  its saved order. Recents now shows everything active within the window; only projects hidden by
+  hand stay out.
+
 ## 0.3.3
 
 - No more fighting over the bar while daemons are still being updated. A copy from 0.3.3 on stands

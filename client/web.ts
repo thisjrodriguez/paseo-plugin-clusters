@@ -337,16 +337,15 @@ function preferencesTarget(): El | null {
 }
 
 /**
- * Whether a project belongs in Recents, judged against its own daemon: its window, the projects
- * it hid, and its clusters. The sidebar mixes daemons, so asking the viewed one would drop every
- * project that lives on any other.
+ * Whether a project belongs in Recents, judged against its own daemon: its window and the projects
+ * it hid. The sidebar mixes daemons, so asking the viewed one would drop every project that lives
+ * on any other. Belonging to a cluster is not required: Recents shows everything active.
  */
 function eligibleFor(key: string, latest: number): boolean {
   const state = store.stateOfKey(key);
   if (!state) return false;
   const hidden = state.recentHidden ?? {};
-  const inAnyCluster = new Set(state.clusters.flatMap((c) => c.projects));
-  return latest > (hidden[key] ?? 0) && (inAnyCluster.size === 0 || inAnyCluster.has(key));
+  return latest > (hidden[key] ?? 0);
 }
 
 /**
