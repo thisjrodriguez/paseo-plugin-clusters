@@ -154,6 +154,17 @@ test("a project is traced back to the daemon that reported it", async () => {
   assert.equal(daemonOfKey("host:unknown:/nowhere"), null);
 });
 
+test("a path with capitals, as every macOS home has, still finds its daemon", async () => {
+  setPersistence(null);
+  const mac = fakeDaemon("mac", { clusters: [], revision: 1 });
+  const a = startDaemon(mac.sync, { pollMs: 0 });
+  await settle();
+
+  registerProjectPath(a, "/users/me/work");
+
+  assert.equal(daemonOfKey("host:app-9:/Users/me/work"), a);
+});
+
 test("Recents spans every connected daemon, each rank stored on its own", async () => {
   setPersistence(null);
   const mine = fakeDaemon("mine", { clusters: [], revision: 1 });
@@ -203,4 +214,16 @@ test("an order saved by an older client is read as ranks, top first", async () =
   registerProjectPath(a, "/a");
 
   assert.deepEqual(recentKeys(), keys);
+});
+
+test("a client that has not read the daemon yet never writes over its clusters", async () => {
+  setPersistence(null);
+  const daemon = fakeDaemon("shared", { clusters: [cluster("work")], revision: 40 });
+  const a = startDaemon(daemon.sync, { pollMs: 0 });
+  // An edit before the first answer, as Recents makes on a freshly opened app.
+  setState(a, { ...getState(a), recentRank: { "host:x:/work": 1000 } });
+  await new Promise((resolve) => setTimeout(resolve, 400));
+
+  assert.equal(daemon.writes.length, 0);
+  assert.deepEqual(getState(a).clusters, [cluster("work")]);
 });

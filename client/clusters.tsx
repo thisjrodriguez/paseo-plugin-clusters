@@ -23,6 +23,8 @@ import {
 import { ClusterForm, type ClusterDraft } from "./cluster-form";
 
 const ALL_TAB = "__all__";
+/** Local to this screen: the projects no cluster holds yet. */
+const UNASSIGNED_TAB = "__unassigned__";
 
 /** The sidebar key for a project, matching the one the desktop sidebar exposes. */
 function projectKey(serverId: string, projectId: string): string {
@@ -116,6 +118,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
   const inCurrent = current ? visible.filter((p) => clusterOf.get(p.key)?.id === current.id) : [];
   const unassigned = visible.filter((p) => !clusterOf.has(p.key));
   const assigned = visible.filter((p) => clusterOf.has(p.key));
+  const unassignedCount = projects.filter((p) => !clusterOf.has(p.key)).length;
 
   const createCluster = (draft: ClusterDraft) => {
     const cluster: Cluster = { id: `c${Date.now().toString(36)}`, ...draft, projects: [] };
@@ -326,6 +329,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
         <View style={[styles.rowWrap, { flex: 1 }]}>
           {tabButton(ALL_TAB, strings.allTab, null, projects.length)}
+          {tabButton(UNASSIGNED_TAB, strings.noCluster, null, unassignedCount)}
           {state.clusters.map((cl) => tabButton(cl.id, cl.name, cl.color, cl.projects.length, clusterIcon(cl)))}
         </View>
         <Pressable accessibilityRole="button" style={styles.button} onPress={() => setForm("create")}>
@@ -369,6 +373,13 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
             </Text>
           ) : null}
           {inCurrent.map(projectRow)}
+        </>
+      ) : tab === UNASSIGNED_TAB ? (
+        <>
+          {unassigned.length === 0 ? (
+            <Text style={styles.muted}>{needle ? strings.noMatches : strings.allClustered}</Text>
+          ) : null}
+          {unassigned.map(projectRow)}
         </>
       ) : (
         <>

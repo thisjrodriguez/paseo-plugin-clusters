@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.5
+
+- A "No cluster" tab in the Clusters screen lists the projects no cluster holds yet.
+- A freshly opened app could wipe a daemon's clusters. It started from an empty copy at revision 0
+  and wrote it before its first read. Clients now write nothing until the daemon has answered, and
+  the daemon refuses writes older than what it stores.
+- Projects under paths with capitals, as every macOS home has, now find the daemon they belong to.
+
 ## 0.3.4
 
 - Recents no longer hides projects that are in no cluster. Once a single project had been filed

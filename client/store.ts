@@ -82,6 +82,8 @@ interface Entry extends Daemon {
   sync: DaemonSync;
   state: ClusterState;
   revision: number;
+  /** Set once the daemon has answered a read; nothing is written to it before that. */
+  loaded: boolean;
   pushTimer: ReturnType<typeof setTimeout> | null;
   pollTimer: ReturnType<typeof setInterval> | null;
   stopped: boolean;
@@ -170,7 +172,7 @@ function sameShared(a: ClusterState, b: ClusterState): boolean {
 
 /** Sends this daemon's state to that daemon, and to no other. */
 function push(entry: Entry): void {
-  if (entry.stopped || entry.pushTimer !== null) return;
+  if (entry.stopped || !entry.loaded || entry.pushTimer !== null) return;
   entry.pushTimer = setTimeout(() => {
     entry.pushTimer = null;
     if (entry.stopped) return;
@@ -243,6 +245,7 @@ export async function pull(daemon: Daemon): Promise<void> {
     const { serverId, state } = await entry.sync.read();
     if (entry.stopped) return;
     identify(entry, serverId);
+    entry.loaded = true;
     // A daemon with no clusters yet keeps none: the client never seeds it with its own.
     if (state && state.revision >= entry.revision) adopt(entry, state);
   } catch (error) {
@@ -262,6 +265,7 @@ export function startDaemon(sync: DaemonSync, options: DaemonOptions = {}): Daem
     sync,
     state: EMPTY,
     revision: 0,
+    loaded: false,
     pushTimer: null,
     pollTimer: null,
     stopped: false,
@@ -321,7 +325,7 @@ export function setState(daemon: Daemon | null, next: ClusterState): void {
 
 /** The projects of one daemon, as the sidebar keys them. Local ones are matched by path. */
 export function registerProjectPath(daemon: Daemon, path: string): void {
-  if (path && entries.has(daemon)) daemonByPath.set(path, daemon);
+  if (path && entries.has(daemon)) daemonByPath.set(path.toLowerCase(), daemon);
 }
 
 export function registerProjectKey(daemon: Daemon, key: string): void {
@@ -339,7 +343,8 @@ export function daemonOfKey(key: string): Daemon | null {
   const local = /^host:([^:]+):(.*)$/.exec(key);
   if (!local) return null;
   const [, host, path] = local;
-  const byPath = daemonByPath.get(path);
+  // Case is not compared: daemons report paths lowercased, the sidebar keeps them as typed.
+  const byPath = daemonByPath.get(path.toLowerCase());
   if (byPath && entries.has(byPath)) {
     daemonByHost.set(host, byPath);
     return byPath;

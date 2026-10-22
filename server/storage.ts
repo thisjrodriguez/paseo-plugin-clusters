@@ -30,6 +30,10 @@ export async function readClusters() {
 }
 
 export async function writeClusters({ state }: RpcInput<typeof writeState>) {
+  // A client that has not read this daemon yet starts from revision 0 and an empty copy; letting it
+  // write would wipe the clusters every other client shares. It catches up on its next read.
+  const stored = (await readClusters()).state;
+  if (stored && state.revision < stored.revision) return { revision: stored.revision };
   await mkdir(dirname(FILE), { recursive: true });
   const temporary = `${FILE}.tmp`;
   await writeFile(temporary, JSON.stringify(state, null, 2), "utf8");
