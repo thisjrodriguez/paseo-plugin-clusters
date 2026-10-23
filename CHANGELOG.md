@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+- A cluster can show an uploaded photo instead of its icon, in the sidebar and the Clusters screen.
+- The Clusters screen is registered once for the whole app, so Paseo no longer adds a host picker to switch between daemons; the screen already lists all of them.
+- Each daemon reports the app's id for its host, so the screen names every node without visiting it first.
+- The language picker is gone: the plugin follows the client's language.
+
 ## 0.4.3
 
 - Node versions are a small table: node, Paseo, plugin. A version behind the newest among your

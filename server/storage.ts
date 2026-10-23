@@ -39,7 +39,16 @@ const PASEO_VERSION = (() => {
   return null;
 })();
 
-const identity = { serverId: SERVER_ID, pluginVersion: PLUGIN_VERSION, paseoVersion: PASEO_VERSION };
+/** The id the app knows this daemon's host by: Paseo keeps it in its home. Null when unreadable. */
+const HOST_ID = (() => {
+  try {
+    return readFileSync(join(HOME, "server-id"), "utf8").trim() || null;
+  } catch {
+    return null;
+  }
+})();
+
+const identity = { serverId: SERVER_ID, pluginVersion: PLUGIN_VERSION, paseoVersion: PASEO_VERSION, hostId: HOST_ID };
 
 export async function readClusters() {
   try {

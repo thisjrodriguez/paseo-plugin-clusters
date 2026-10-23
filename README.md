@@ -40,7 +40,7 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
   does Recents. Each project keeps its place on the daemon that owns it, so nothing of yours is
   written anywhere else. The time window is one for the whole bar: the one set on the daemon the
   bar is anchored to.
-- **English and Spanish**, following the client's language, with a picker in the cluster form.
+- **English and Spanish**, following the client's language.
 
 ## Limitations
 

@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
-import { LANGUAGES, type Language, type LanguagePreference, type Strings } from "../shared/i18n";
+import { LANGUAGES, type Language, type Strings } from "../shared/i18n";
+import { MAX_IMAGE_LENGTH } from "../shared/storage";
 import * as store from "./store";
 import type { Cluster, ClusterState, Daemon, DaemonSync, MergedCluster } from "./store";
 
@@ -57,6 +58,29 @@ declare class MutationObserver {
   observe(target: El, options: { childList: boolean; subtree: boolean }): void;
   disconnect(): void;
 }
+interface FileInput extends El {
+  type: string;
+  accept: string;
+  files: ArrayLike<unknown> | null;
+  onchange: (() => void) | null;
+  click(): void;
+}
+interface Canvas extends El {
+  width: number;
+  height: number;
+  getContext(kind: "2d"): {
+    drawImage(image: unknown, sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number): void;
+  } | null;
+  toDataURL(type: string, quality?: number): string;
+}
+declare class Image {
+  src: string;
+  readonly naturalWidth: number;
+  readonly naturalHeight: number;
+  onload: (() => void) | null;
+  onerror: (() => void) | null;
+}
+declare const URL: { createObjectURL(file: unknown): string; revokeObjectURL(url: string): void };
 declare function requestAnimationFrame(cb: () => void): number;
 declare const window: {
   readonly innerWidth: number;
@@ -81,43 +105,66 @@ export function clusterIcon(cluster: Pick<Cluster, "name" | "icon">): string {
 
 const ROW_PREFIX = "sidebar-project-row-";
 const BAR_ID = "paseo-clusters-bar";
-const LANGUAGE_KEY = "paseo-clusters:language";
-
 function systemLanguage(): Language {
   if (!isWeb) return "en";
   const tags = navigator.languages ?? (navigator.language ? [navigator.language] : []);
   return tags.some((tag) => tag.toLowerCase().startsWith("es")) ? "es" : "en";
 }
 
-let languagePreference: LanguagePreference = readLanguagePreference();
-
-function readLanguagePreference(): LanguagePreference {
-  if (!isWeb) return "auto";
-  const stored = localStorage.getItem(LANGUAGE_KEY);
-  return stored === "en" || stored === "es" ? stored : "auto";
-}
-
-export function getLanguagePreference(): LanguagePreference {
-  const other = otherOwner();
-  if (other) return other.getLanguagePreference();
-  return languagePreference;
-}
-
-export function setLanguagePreference(next: LanguagePreference): void {
-  const other = otherOwner();
-  if (other) return other.setLanguagePreference(next);
-  languagePreference = next;
-  if (isWeb) localStorage.setItem(LANGUAGE_KEY, next);
-  const bar = document.querySelector(`#${BAR_ID}`);
-  if (bar) renderBar(bar, openCurrent);
-  store.notifyListeners();
-}
-
-/** Strings for the active language: the user's choice, or the client's own language. */
+/** Strings in the client's own language. */
 export function t(): Strings {
-  const other = otherOwner();
-  if (other) return other.t();
-  return LANGUAGES[languagePreference === "auto" ? systemLanguage() : languagePreference];
+  return LANGUAGES[systemLanguage()];
+}
+
+/** Side of the square a picture is cropped and scaled to before it is stored. */
+const IMAGE_SIZE = 96;
+
+/**
+ * Asks for a picture, crops it to a centred square and returns it as a small data URL. Null when
+ * cancelled, unreadable or not on the web.
+ */
+export function pickImage(): Promise<string | null> {
+  if (!isWeb) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const input = document.createElement("input") as FileInput;
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return resolve(null);
+      const url = URL.createObjectURL(file);
+      const image = new Image();
+      image.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+      image.onload = () => {
+        URL.revokeObjectURL(url);
+        const side = Math.min(image.naturalWidth, image.naturalHeight);
+        const canvas = document.createElement("canvas") as Canvas;
+        canvas.width = IMAGE_SIZE;
+        canvas.height = IMAGE_SIZE;
+        const context = canvas.getContext("2d");
+        if (!side || !context) return resolve(null);
+        context.drawImage(
+          image,
+          (image.naturalWidth - side) / 2,
+          (image.naturalHeight - side) / 2,
+          side,
+          side,
+          0,
+          0,
+          IMAGE_SIZE,
+          IMAGE_SIZE,
+        );
+        const webp = canvas.toDataURL("image/webp", 0.85);
+        const data = webp.startsWith("data:image/webp") ? webp : canvas.toDataURL("image/png");
+        resolve(data.length <= MAX_IMAGE_LENGTH ? data : null);
+      };
+      image.src = url;
+    };
+    input.click();
+  });
 }
 
 /** Web clients cache each daemon's clusters in localStorage, under that daemon's own key. */
@@ -754,8 +801,8 @@ function renderBar(bar: El, onAdd: () => void): void {
         tooltipText: `${c.name} · ${t().clusterProjects(c.projects.length)}`,
         active: c.id === active,
         onClick: () => setActive(c.id),
-        text: clusterIcon(c),
-        style: { background: c.color },
+        text: c.image ? "" : clusterIcon(c),
+        style: { background: c.image ? `${c.color} center / cover no-repeat url("${c.image}")` : c.color },
       }),
     ),
     circle({
@@ -835,13 +882,13 @@ export function setActive(id: string | null): void {
   store.setActive(id);
 }
 
-export function createCluster(daemon: Daemon, draft: Pick<Cluster, "name" | "color" | "icon">): string | null {
+export function createCluster(daemon: Daemon, draft: Pick<Cluster, "name" | "color" | "icon" | "image">): string | null {
   const other = otherOwner();
   if (other) return other.createCluster(daemon, draft);
   return store.createCluster(daemon, draft);
 }
 
-export function updateCluster(id: string, patch: Partial<Pick<Cluster, "name" | "color" | "icon">>): void {
+export function updateCluster(id: string, patch: Partial<Pick<Cluster, "name" | "color" | "icon" | "image">>): void {
   const other = otherOwner();
   if (other) return other.updateCluster(id, patch);
   store.updateCluster(id, patch);
@@ -1258,10 +1305,59 @@ let stopSidebar: (() => void) | null = null;
 /** How to open the Clusters screen of each connected daemon. */
 const openers = new Map<Daemon, () => void>();
 
-/** Opens the Clusters screen of the daemon the bar is showing. */
+/** Opens the Clusters screen, wherever it is registered. */
 function openCurrent(): void {
-  const daemon = store.currentDaemon();
+  const daemon = screenHolder?.daemon ?? store.currentDaemon();
   if (daemon) openers.get(daemon)?.();
+}
+
+interface ScreenClaim {
+  daemon: Daemon;
+  register: () => () => void;
+  unregister: (() => void) | null;
+}
+
+/** Every copy that can show the Clusters screen; only the first one registers it. */
+const screenClaims: ScreenClaim[] = [];
+let screenHolder: ScreenClaim | null = null;
+
+function promoteScreen(): void {
+  const next = screenClaims[0] ?? null;
+  if (next === screenHolder) return;
+  if (screenHolder) {
+    screenHolder.unregister?.();
+    screenHolder.unregister = null;
+  }
+  screenHolder = next;
+  if (next) next.unregister = next.register();
+}
+
+/**
+ * Registers the Clusters screen, its sidebar entry and its command once for the whole app. The
+ * screen already shows every connected daemon, so registering it on each host only made Paseo add
+ * a host picker. When the holder's daemon goes away, the next copy takes over.
+ */
+export function claimScreen(daemon: Daemon, register: () => () => void): () => void {
+  const other = otherOwner();
+  if (other) return other.claimScreen(daemon, register);
+  if (!isWeb) {
+    const unregister = register();
+    return unregister;
+  }
+  const claim: ScreenClaim = { daemon, register, unregister: null };
+  screenClaims.push(claim);
+  promoteScreen();
+  return () => {
+    const index = screenClaims.indexOf(claim);
+    if (index < 0) return;
+    screenClaims.splice(index, 1);
+    if (screenHolder === claim) {
+      claim.unregister?.();
+      claim.unregister = null;
+      screenHolder = null;
+    }
+    promoteScreen();
+  };
 }
 
 function releaseSidebar(daemon: Daemon): void {
@@ -1350,9 +1446,6 @@ function runSidebar(): () => void {
  * owns the sidebar and the store; later copies hand their calls (and their daemon) to it.
  */
 interface Owner {
-  getLanguagePreference: typeof getLanguagePreference;
-  setLanguagePreference: typeof setLanguagePreference;
-  t: typeof t;
   getState: typeof getState;
   setState: typeof setState;
   subscribe: typeof subscribe;
@@ -1375,6 +1468,7 @@ interface Owner {
   hostIdOf: typeof hostIdOf;
   hostIdOfKey: typeof hostIdOfKey;
   startSidebarClusters: typeof startSidebarClusters;
+  claimScreen: typeof claimScreen;
 }
 
 /**
@@ -1382,7 +1476,7 @@ interface Owner {
  * the same page. An older copy owning the slot cannot answer what a newer one asks of it, so they
  * take separate slots and each runs on its own until every daemon is on the same version.
  */
-const OWNER_KEY = "__paseoClustersOwner:5";
+const OWNER_KEY = "__paseoClustersOwner:6";
 let self: Owner | null = null;
 
 function ownerSlot(): { [OWNER_KEY]?: Owner } {
@@ -1393,9 +1487,6 @@ function ownerSlot(): { [OWNER_KEY]?: Owner } {
 function otherOwner(): Owner | null {
   if (!isWeb) return null;
   self ??= {
-    getLanguagePreference,
-    setLanguagePreference,
-    t,
     getState,
     setState,
     subscribe,
@@ -1418,6 +1509,7 @@ function otherOwner(): Owner | null {
     hostIdOf,
     hostIdOfKey,
     startSidebarClusters,
+    claimScreen,
   };
   const slot = ownerSlot();
   // Anything in the slot that cannot answer this version's calls is treated as absent.

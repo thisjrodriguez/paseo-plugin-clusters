@@ -18,6 +18,8 @@ export interface Cluster {
   color: string;
   /** Letter, emoji or symbol shown in the circle; falls back to the name's initial. */
   icon?: string;
+  /** An uploaded picture as a data URL; shown instead of the icon. */
+  image?: string;
   projects: string[];
 }
 
@@ -50,7 +52,7 @@ export interface SharedState {
 
 /** The daemon side of one plugin copy: its identity plus its stored clusters. */
 export interface DaemonSync {
-  read(): Promise<{ serverId: string; state: SharedState | null; pluginVersion?: string; paseoVersion?: string | null }>;
+  read(): Promise<{ serverId: string; state: SharedState | null; pluginVersion?: string; paseoVersion?: string | null; hostId?: string | null }>;
   write(state: SharedState): Promise<void>;
 }
 
@@ -257,9 +259,10 @@ export async function pull(daemon: Daemon): Promise<void> {
   const entry = entries.get(daemon);
   if (!entry || entry.stopped) return;
   try {
-    const { serverId, state, pluginVersion, paseoVersion } = await entry.sync.read();
+    const { serverId, state, pluginVersion, paseoVersion, hostId } = await entry.sync.read();
     if (entry.stopped) return;
     identify(entry, serverId);
+    if (hostId) registerHost(entry, hostId);
     entry.loaded = true;
     if (entry.pluginVersion !== (pluginVersion ?? null) || entry.paseoVersion !== (paseoVersion ?? null)) {
       entry.pluginVersion = pluginVersion ?? null;
@@ -547,7 +550,7 @@ function editClusters(entry: Entry, edit: (clusters: Cluster[]) => Cluster[]): v
 }
 
 /** A new cluster on one daemon; one of the same name elsewhere joins it. Returns its merged id. */
-export function createCluster(daemon: Daemon, draft: Pick<Cluster, "name" | "color" | "icon">): string | null {
+export function createCluster(daemon: Daemon, draft: Pick<Cluster, "name" | "color" | "icon" | "image">): string | null {
   const entry = entries.get(daemon);
   if (!entry) return null;
   const id = mergedIdOf(draft.name);
@@ -558,7 +561,7 @@ export function createCluster(daemon: Daemon, draft: Pick<Cluster, "name" | "col
 }
 
 /** Renames or recolours a cluster on every daemon that has it. */
-export function updateCluster(id: string, patch: Partial<Pick<Cluster, "name" | "color" | "icon">>): void {
+export function updateCluster(id: string, patch: Partial<Pick<Cluster, "name" | "color" | "icon" | "image">>): void {
   const target = mergedClusters().find((c) => c.id === id);
   if (!target) return;
   const wasActive = getActive() === id;
@@ -599,7 +602,7 @@ export function moveProject(key: string, id: string | null): MergedCluster | nul
     if (!target) return next;
     const home = next.find((c) => mergedIdOf(c.name) === target.id);
     if (home) home.projects.push(key);
-    else next.push({ id: newClusterId(), name: target.name, color: target.color, icon: target.icon, projects: [key] });
+    else next.push({ id: newClusterId(), name: target.name, color: target.color, icon: target.icon, image: target.image, projects: [key] });
     return next;
   });
   return target;

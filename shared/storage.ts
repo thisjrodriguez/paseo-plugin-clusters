@@ -1,11 +1,16 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
+/** Pictures are resized on upload; this only keeps a stray one from bloating the shared file. */
+export const MAX_IMAGE_LENGTH = 200_000;
+
 export const clusterSchema = z.object({
   id: z.string(),
   name: z.string(),
   color: z.string(),
   icon: z.string().optional(),
+  /** An uploaded picture as a small data URL; shown instead of the icon. */
+  image: z.string().max(MAX_IMAGE_LENGTH).optional(),
   projects: z.array(z.string()),
 });
 
@@ -40,6 +45,8 @@ export const readState = defineRpc({
     /** Sent from 0.4.1 on; absent means an older plugin. */
     pluginVersion: z.string().optional(),
     paseoVersion: z.string().nullable().optional(),
+    /** The app's id for this daemon's host. Sent from 0.5.0 on, so one screen can name every node. */
+    hostId: z.string().nullable().optional(),
   }),
 });
 

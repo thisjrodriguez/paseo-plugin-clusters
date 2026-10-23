@@ -1,7 +1,7 @@
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useMemo, useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
-import { type Cluster, clusterIcon, getLanguagePreference, setLanguagePreference, t } from "./web";
+import { Image, Pressable, Text, TextInput, View } from "react-native";
+import { type Cluster, clusterIcon, isWeb, pickImage, t } from "./web";
 
 type PluginTheme = PluginSurfaceProps["theme"];
 
@@ -20,11 +20,12 @@ export interface ClusterDraft {
   name: string;
   icon: string;
   color: string;
+  image: string | undefined;
 }
 
 interface Props {
   theme: PluginTheme;
-  initial: Pick<Cluster, "name" | "color"> & { icon?: string };
+  initial: Pick<Cluster, "name" | "color"> & { icon?: string; image?: string };
   title: string;
   submitLabel: string;
   onSubmit(draft: ClusterDraft): void;
@@ -36,6 +37,8 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
   const [icon, setIcon] = useState(initial.icon ?? "");
   const [color, setColor] = useState(initial.color);
   const [hex, setHex] = useState(initial.color);
+  const [image, setImage] = useState(initial.image);
+  const [imageError, setImageError] = useState(false);
 
   const strings = t();
   const c = theme.colors;
@@ -73,7 +76,12 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
   const preview = clusterIcon({ name: trimmedName || "?", icon });
   const submit = () => {
     if (!trimmedName) return;
-    onSubmit({ name: trimmedName, icon: icon.trim(), color });
+    onSubmit({ name: trimmedName, icon: icon.trim(), color, image });
+  };
+  const upload = async () => {
+    const picked = await pickImage();
+    setImageError(picked === null);
+    if (picked) setImage(picked);
   };
 
   return (
@@ -87,9 +95,14 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
             backgroundColor: color,
             alignItems: "center",
             justifyContent: "center",
+            overflow: "hidden",
           }}
         >
-          <Text style={{ color: "#ffffff", fontSize: 24, fontWeight: "700" }}>{preview}</Text>
+          {image ? (
+            <Image source={{ uri: image }} style={{ width: 56, height: 56 }} accessibilityIgnoresInvertColors />
+          ) : (
+            <Text style={{ color: "#ffffff", fontSize: 24, fontWeight: "700" }}>{preview}</Text>
+          )}
         </View>
         <Text style={{ color: c.foreground, fontSize: 20, fontWeight: "600" }}>{title}</Text>
       </View>
@@ -140,6 +153,30 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
         </View>
       </View>
 
+      {isWeb ? (
+        <View style={{ gap: 6 }}>
+          <Text style={styles.label}>{strings.photo}</Text>
+          <View style={styles.wrap}>
+            <Pressable accessibilityRole="button" style={styles.ghost} onPress={() => void upload()}>
+              <Text style={styles.text}>{image ? strings.changePhoto : strings.uploadPhoto}</Text>
+            </Pressable>
+            {image ? (
+              <Pressable
+                accessibilityRole="button"
+                style={styles.ghost}
+                onPress={() => {
+                  setImage(undefined);
+                  setImageError(false);
+                }}
+              >
+                <Text style={styles.text}>{strings.removePhoto}</Text>
+              </Pressable>
+            ) : null}
+            {imageError ? <Text style={{ color: c.statusDanger, fontSize: 12 }}>{strings.photoError}</Text> : null}
+          </View>
+        </View>
+      ) : null}
+
       <View style={{ gap: 6 }}>
         <Text style={styles.label}>{strings.background}</Text>
         <View style={styles.wrap}>
@@ -173,35 +210,6 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
           <Text style={{ color: HEX.test(hex) ? c.foregroundMuted : c.statusDanger, fontSize: 12 }}>
             {HEX.test(hex) ? strings.anyHex : strings.hexFormat}
           </Text>
-        </View>
-      </View>
-
-      <View style={{ gap: 6 }}>
-        <Text style={styles.label}>{strings.language}</Text>
-        <View style={styles.wrap}>
-          {(["auto", "en", "es"] as const).map((value) => {
-            const selected = getLanguagePreference() === value;
-            return (
-              <Pressable
-                key={value}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                onPress={() => setLanguagePreference(value)}
-                style={{
-                  paddingVertical: 6,
-                  paddingHorizontal: 10,
-                  borderRadius: 6,
-                  borderWidth: 1,
-                  borderColor: selected ? c.foreground : c.border,
-                  backgroundColor: selected ? c.surface2 : "transparent",
-                }}
-              >
-                <Text style={styles.text}>
-                  {value === "auto" ? strings.languageAuto : value === "en" ? "English" : "Español"}
-                </Text>
-              </Pressable>
-            );
-          })}
         </View>
       </View>
 

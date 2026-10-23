@@ -1,5 +1,4 @@
 export type Language = "en" | "es";
-export type LanguagePreference = Language | "auto";
 
 const en = {
   recentsLabel: "Recents",
@@ -45,8 +44,11 @@ const en = {
   background: "BACKGROUND",
   anyHex: "Any hex color",
   hexFormat: "Format: #RRGGBB",
-  language: "LANGUAGE",
-  languageAuto: "Automatic",
+  photo: "PHOTO · replaces the icon",
+  uploadPhoto: "Upload photo",
+  changePhoto: "Change photo",
+  removePhoto: "Remove photo",
+  photoError: "Could not read that image.",
   openWorkspace: (name: string) => `Open ${name}`,
   mobileNotice: "The sidebar circles are desktop only. Your clusters and their workspaces are listed here.",
   nodeHeader: "Node",
@@ -99,8 +101,11 @@ const es: typeof en = {
   background: "FONDO",
   anyHex: "Cualquier color en hex",
   hexFormat: "Formato: #RRGGBB",
-  language: "IDIOMA",
-  languageAuto: "Automático",
+  photo: "FOTO · sustituye al icono",
+  uploadPhoto: "Subir foto",
+  changePhoto: "Cambiar foto",
+  removePhoto: "Quitar foto",
+  photoError: "No se pudo leer esa imagen.",
   openWorkspace: (name) => `Abrir ${name}`,
   mobileNotice:
     "Los círculos de la barra lateral solo existen en el escritorio. Aquí tienes tus clusters y sus workspaces.",

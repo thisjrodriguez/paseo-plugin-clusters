@@ -1,7 +1,7 @@
 import { type PluginHostSummary, type PluginSurfaceProps, useHosts, usePaseo } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Image, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import {
   COLORS,
   type Daemon,
@@ -213,7 +213,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     </Pressable>
   );
 
-  const tabButton = (id: string, label: string, color: string | null, count: number, icon?: string) => {
+  const tabButton = (id: string, label: string, color: string | null, count: number, icon?: string, image?: string) => {
     const selected = tab === id;
     return (
       <Pressable
@@ -242,9 +242,14 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
               backgroundColor: color,
               alignItems: "center",
               justifyContent: "center",
+              overflow: "hidden",
             }}
           >
-            <Text style={{ color: "#ffffff", fontSize: 11, fontWeight: "700" }}>{icon}</Text>
+            {image ? (
+              <Image source={{ uri: image }} style={{ width: 20, height: 20 }} accessibilityIgnoresInvertColors />
+            ) : (
+              <Text style={{ color: "#ffffff", fontSize: 11, fontWeight: "700" }}>{icon}</Text>
+            )}
           </View>
         ) : null}
         <Text style={styles.text}>{label}</Text>
@@ -450,7 +455,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
         <View style={[styles.rowWrap, { flex: 1 }]}>
           {tabButton(ALL_TAB, strings.allTab, null, projects.length)}
           {tabButton(UNASSIGNED_TAB, strings.noCluster, null, unassignedCount)}
-          {clusters.map((cl) => tabButton(cl.id, cl.name, cl.color, cl.projects.length, clusterIcon(cl)))}
+          {clusters.map((cl) => tabButton(cl.id, cl.name, cl.color, cl.projects.length, clusterIcon(cl), cl.image))}
         </View>
         <Pressable accessibilityRole="button" style={styles.button} onPress={() => setForm("create")}>
           <Text style={styles.buttonText}>{strings.newCluster}</Text>

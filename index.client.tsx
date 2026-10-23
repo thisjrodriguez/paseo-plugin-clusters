@@ -3,7 +3,7 @@ import { ClustersSurface } from "./client/clusters";
 import { t } from "./client/web";
 import { type AgentLike, toMs, usedAt } from "./shared/activity";
 import { readState, writeState } from "./shared/storage";
-import { type Daemon, type WorkspaceStatus, connectDaemon, disconnectDaemon, isWeb, registerProjects, removeWorkspace, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
+import { type Daemon, type WorkspaceStatus, claimScreen, connectDaemon, disconnectDaemon, isWeb, registerProjects, removeWorkspace, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
 
 /** Fallback resync; live updates arrive through the subscriptions below. */
 const RESYNC_MS = 60_000;
@@ -46,26 +46,35 @@ export default function contribute(client: PluginClientContext) {
     },
   });
 
-  client.addSurface("clusters", (props: PluginSurfaceProps) => <ClustersSurface {...props} daemon={daemon} />);
-  client.addSidebarItem({
-    id: "clusters",
-    title: t().sidebarItem,
-    icon: "LayoutGrid",
-    surface: "clusters",
-  });
-  client.addCommandCenterItem({
-    id: "open-clusters",
-    title: t().commandOpen,
-    icon: "LayoutGrid",
-    context: "global",
-    onSelect({ openSurface }) {
-      openSurface("clusters");
-    },
+  // The screen lists every connected daemon, so only one copy registers it: one entry, no host picker.
+  const releaseScreen = claimScreen(daemon, () => {
+    const removers = [
+      client.addSurface("clusters", (props: PluginSurfaceProps) => <ClustersSurface {...props} daemon={daemon} />),
+      client.addSidebarItem({
+        id: "clusters",
+        title: t().sidebarItem,
+        icon: "LayoutGrid",
+        surface: "clusters",
+      }),
+      client.addCommandCenterItem({
+        id: "open-clusters",
+        title: t().commandOpen,
+        icon: "LayoutGrid",
+        context: "global",
+        onSelect({ openSurface }) {
+          openSurface("clusters");
+        },
+      }),
+    ];
+    return () => {
+      for (const remove of removers) void remove();
+    };
   });
 
   const stopSidebar = startSidebarClusters(daemon, () => client.openSurface("clusters"));
   if (!isWeb) {
     return () => {
+      releaseScreen();
       disconnectDaemon(daemon);
       stopSidebar();
     };
@@ -137,6 +146,7 @@ export default function contribute(client: PluginClientContext) {
     clearInterval(timer);
     stopWorkspaces();
     stopAgents();
+    releaseScreen();
     stopSidebar();
     disconnectDaemon(daemon);
   };
