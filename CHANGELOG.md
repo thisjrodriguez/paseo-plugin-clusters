@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2
+
+- 0.4.1 on npm was built from a commit that imported package.json, which Paseo refuses to build,
+  so installs from npm failed and kept the previous version. Same features, now buildable.
+
 ## 0.4.1
 
 - The Clusters screen lists every node with its Paseo and plugin versions, and warns when they
