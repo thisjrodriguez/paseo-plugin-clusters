@@ -4,21 +4,27 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import {
   COLORS,
-  type Cluster,
   type Daemon,
+  type MergedCluster,
   type SidebarProject,
   clusterIcon,
+  createCluster,
   DEFAULT_RECENT_HOURS,
+  deleteCluster,
   focusDaemon,
+  getActive,
   getState,
   isWeb,
   listSidebarProjects,
+  mergedClusters,
+  mergedIdOf,
   moveProjectToCluster,
   setState,
   MAX_RECENT_HOURS,
   MIN_RECENT_HOURS,
   subscribe,
   t,
+  updateCluster,
 } from "./web";
 import { ClusterForm, type ClusterDraft } from "./cluster-form";
 
@@ -33,7 +39,10 @@ function projectKey(serverId: string, projectId: string): string {
   return `remote:${projectId.replace(/^remote:/, "")}`;
 }
 
-/** One screen per connected daemon: it shows and edits the clusters of its own daemon only. */
+/**
+ * One screen per connected daemon. It shows the clusters of every connected daemon, those with the
+ * same name as one; projects are filed on their own daemon, and new clusters start on this one.
+ */
 export interface ClustersSurfaceProps extends PluginSurfaceProps {
   daemon: Daemon;
 }
@@ -41,10 +50,11 @@ export interface ClustersSurfaceProps extends PluginSurfaceProps {
 export function ClustersSurface({ theme, layout, host, navigation, daemon }: ClustersSurfaceProps) {
   const snapshot = useCallback(() => getState(daemon), [daemon]);
   const state = useSyncExternalStore(subscribe, snapshot);
+  const clusters = useSyncExternalStore(subscribe, mergedClusters);
   // Looking at a daemon's clusters is what points the sidebar bar at that daemon.
   useEffect(() => focusDaemon(daemon), [daemon]);
   const strings = t();
-  const [tab, setTab] = useState<string>(state.active && state.active !== ALL_TAB ? state.active : ALL_TAB);
+  const [tab, setTab] = useState<string>(() => getActive() ?? ALL_TAB);
   const [form, setForm] = useState<"create" | "edit" | null>(null);
   const [query, setQuery] = useState("");
   const paseo = usePaseo();
@@ -107,10 +117,10 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     [c, layout.compact],
   );
 
-  const clusterOf = new Map<string, Cluster>();
-  for (const cl of state.clusters) for (const key of cl.projects) clusterOf.set(key, cl);
+  const clusterOf = new Map<string, MergedCluster>();
+  for (const cl of clusters) for (const key of cl.projects) clusterOf.set(key, cl);
 
-  const current = state.clusters.find((cl) => cl.id === tab) ?? null;
+  const current = clusters.find((cl) => cl.id === tab) ?? null;
   const needle = query.trim().toLowerCase();
   const matches = (p: SidebarProject) =>
     !needle || p.label.toLowerCase().includes(needle) || p.key.toLowerCase().includes(needle);
@@ -120,23 +130,16 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
   const assigned = visible.filter((p) => clusterOf.has(p.key));
   const unassignedCount = projects.filter((p) => !clusterOf.has(p.key)).length;
 
-  const createCluster = (draft: ClusterDraft) => {
-    const cluster: Cluster = { id: `c${Date.now().toString(36)}`, ...draft, projects: [] };
+  const create = (draft: ClusterDraft) => {
     setForm(null);
-    setTab(cluster.id);
-    setState(daemon, { ...state, clusters: [...state.clusters, cluster] });
+    const id = createCluster(daemon, draft);
+    if (id) setTab(id);
   };
 
-  const updateCluster = (id: string, patch: Partial<Cluster>) =>
-    setState(daemon, { ...state, clusters: state.clusters.map((cl) => (cl.id === id ? { ...cl, ...patch } : cl)) });
-
-  const deleteCluster = () => {
+  const remove = () => {
     if (!current) return;
     setTab(ALL_TAB);
-    setState(daemon, {
-      clusters: state.clusters.filter((cl) => cl.id !== current.id),
-      active: state.active === current.id ? null : state.active,
-    });
+    deleteCluster(current.id);
   };
 
   const hours = Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, Math.round(state.recentHours ?? DEFAULT_RECENT_HOURS)));
@@ -205,13 +208,13 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     );
   };
 
-  const moveChip = (key: string, target: Cluster | null, isCurrent: boolean) => (
+  const moveChip = (key: string, target: MergedCluster | null, isCurrent: boolean) => (
     <Pressable
       key={target?.id ?? "none"}
       accessibilityRole="button"
       accessibilityLabel={target ? strings.moveTo(target.name) : strings.removeFromCluster}
       disabled={isCurrent}
-      onPress={() => moveProjectToCluster(daemon, key, target?.id ?? null)}
+      onPress={() => moveProjectToCluster(key, target?.id ?? null)}
       style={{
         flexDirection: "row",
         alignItems: "center",
@@ -279,7 +282,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
           </Text>
         </View>
         <View style={[styles.rowWrap, { gap: 6 }]}>
-          {state.clusters.map((cl) => moveChip(p.key, cl, owner?.id === cl.id))}
+          {clusters.map((cl) => moveChip(p.key, cl, owner?.id === cl.id))}
           {moveChip(p.key, null, owner === null)}
         </View>
       </View>
@@ -297,11 +300,13 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
           theme={theme}
           title={editing ? strings.formEdit(editing.name) : strings.formNew}
           submitLabel={editing ? strings.save : strings.create}
-          initial={editing ?? { name: "", color: COLORS[state.clusters.length % COLORS.length] }}
+          initial={editing ?? { name: "", color: COLORS[clusters.length % COLORS.length] }}
           onCancel={() => setForm(null)}
           onSubmit={(draft) => {
-            if (!editing) return createCluster(draft);
+            if (!editing) return create(draft);
             updateCluster(editing.id, draft);
+            // A rename moves the cluster to its new name, which may join another one.
+            setTab(mergedIdOf(draft.name));
             setForm(null);
           }}
         />
@@ -330,7 +335,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
         <View style={[styles.rowWrap, { flex: 1 }]}>
           {tabButton(ALL_TAB, strings.allTab, null, projects.length)}
           {tabButton(UNASSIGNED_TAB, strings.noCluster, null, unassignedCount)}
-          {state.clusters.map((cl) => tabButton(cl.id, cl.name, cl.color, cl.projects.length, clusterIcon(cl)))}
+          {clusters.map((cl) => tabButton(cl.id, cl.name, cl.color, cl.projects.length, clusterIcon(cl)))}
         </View>
         <Pressable accessibilityRole="button" style={styles.button} onPress={() => setForm("create")}>
           <Text style={styles.buttonText}>{strings.newCluster}</Text>
@@ -362,7 +367,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
               <Pressable accessibilityRole="button" style={styles.ghost} onPress={() => setForm("edit")}>
                 <Text style={styles.text}>{strings.edit}</Text>
               </Pressable>
-              <Pressable accessibilityRole="button" style={styles.ghost} onPress={deleteCluster}>
+              <Pressable accessibilityRole="button" style={styles.ghost} onPress={remove}>
                 <Text style={styles.text}>{strings.deleteCluster}</Text>
               </Pressable>
             </View>

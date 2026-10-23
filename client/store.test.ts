@@ -12,11 +12,17 @@ import {
   topRank,
   focusDaemon,
   getState,
+  createCluster,
+  deleteCluster,
+  mergedClusters,
+  mergedIdOf,
+  moveProject,
   pull,
   resetStore,
   setPersistence,
   setState,
   startDaemon,
+  updateCluster,
 } from "./store.ts";
 
 function cluster(name: string): Cluster {
@@ -226,4 +232,65 @@ test("a client that has not read the daemon yet never writes over its clusters",
 
   assert.equal(daemon.writes.length, 0);
   assert.deepEqual(getState(a).clusters, [cluster("work")]);
+});
+
+test("clusters with the same name on different daemons are shown as one", async () => {
+  setPersistence(null);
+  const home = fakeDaemon("home", { clusters: [{ id: "a", name: "Labs", color: "#111", projects: ["host:h:/x"] }], revision: 1 });
+  const work = fakeDaemon("work", { clusters: [{ id: "b", name: " labs ", color: "#222", projects: ["host:w:/y"] }], revision: 1 });
+  startDaemon(home.sync, { pollMs: 0 });
+  startDaemon(work.sync, { pollMs: 0 });
+  await settle();
+
+  const clusters = mergedClusters();
+  assert.equal(clusters.length, 1);
+  assert.equal(clusters[0].name, "Labs");
+  assert.deepEqual(clusters[0].projects, ["host:h:/x", "host:w:/y"]);
+});
+
+test("a project is filed on its own daemon, under a cluster of the same name", async () => {
+  setPersistence(null);
+  const home = fakeDaemon("home", { clusters: [{ id: "a", name: "Labs", color: "#111", projects: [] }], revision: 1 });
+  const work = fakeDaemon("work", { clusters: [], revision: 1 });
+  const a = startDaemon(home.sync, { pollMs: 0 });
+  const b = startDaemon(work.sync, { pollMs: 0 });
+  await settle();
+  registerProjectPath(b, "/srv/app");
+
+  moveProject("host:w:/srv/app", mergedIdOf("Labs"));
+  await new Promise((resolve) => setTimeout(resolve, 400));
+
+  assert.deepEqual(getState(a).clusters[0].projects, []);
+  assert.equal(getState(b).clusters[0].name, "Labs");
+  assert.deepEqual(getState(b).clusters[0].projects, ["host:w:/srv/app"]);
+  assert.deepEqual(home.writes, []);
+  assert.equal(work.writes.length, 1);
+  assert.deepEqual(mergedClusters()[0].projects, ["host:w:/srv/app"]);
+});
+
+test("renaming or deleting a cluster reaches every daemon that has it", async () => {
+  setPersistence(null);
+  const home = fakeDaemon("home", { clusters: [{ id: "a", name: "Labs", color: "#111", projects: [] }], revision: 1 });
+  const work = fakeDaemon("work", { clusters: [{ id: "b", name: "Labs", color: "#222", projects: [] }], revision: 1 });
+  const a = startDaemon(home.sync, { pollMs: 0 });
+  const b = startDaemon(work.sync, { pollMs: 0 });
+  await settle();
+
+  updateCluster(mergedIdOf("Labs"), { name: "Lab", color: "#333" });
+  assert.deepEqual([getState(a).clusters[0].name, getState(b).clusters[0].color], ["Lab", "#333"]);
+
+  deleteCluster(mergedIdOf("Lab"));
+  assert.deepEqual([getState(a).clusters, getState(b).clusters], [[], []]);
+});
+
+test("a new cluster with an existing name joins it instead of duplicating", async () => {
+  setPersistence(null);
+  const home = fakeDaemon("home", { clusters: [{ id: "a", name: "Labs", color: "#111", projects: [] }], revision: 1 });
+  const work = fakeDaemon("work", { clusters: [], revision: 1 });
+  startDaemon(home.sync, { pollMs: 0 });
+  const b = startDaemon(work.sync, { pollMs: 0 });
+  await settle();
+
+  assert.equal(createCluster(b, { name: "labs", color: "#999" }), mergedIdOf("Labs"));
+  assert.equal(mergedClusters().length, 1);
 });

@@ -7,6 +7,9 @@
  *
  * The app does not hand client contributions its own server id, so the id comes from the daemon
  * itself: it is stable per daemon (host plus PASEO_HOME) and only ever used to key the local cache.
+ *
+ * What the user sees is one list for every connected daemon: clusters with the same name are shown
+ * as one. Each project is still filed on the daemon that owns it, under a cluster of that name.
  */
 
 export interface Cluster {
@@ -71,6 +74,8 @@ export const MAX_RECENT_HOURS = 48;
 const KEY_PREFIX = "paseo-clusters:v1";
 /** Which daemon the sidebar is showing, so it survives a reload. */
 const CURRENT_KEY = `${KEY_PREFIX}:current`;
+/** The selected circle of the bar, local to this app. */
+const ACTIVE_KEY = `${KEY_PREFIX}:active`;
 const SYNC_POLL_MS = 5000;
 const PUSH_DELAY_MS = 300;
 
@@ -97,12 +102,17 @@ const daemonByHost = new Map<string, Daemon>();
 const listeners = new Set<() => void>();
 let current: Entry | null = null;
 let persistence: Persistence | null = null;
+/** The merged clusters, rebuilt on the next read after any change. */
+let merged: MergedCluster[] | null = null;
+/** The selected circle; undefined until first read. */
+let active: string | null | undefined;
 
 export function setPersistence(next: Persistence | null): void {
   persistence = next;
 }
 
 function notify(): void {
+  merged = null;
   for (const listener of listeners) listener();
 }
 
@@ -412,6 +422,161 @@ export function setRanks(changes: Map<string, number | null>): void {
   }
 }
 
+/** One cluster as the user sees it: every connected daemon's cluster of that name. */
+export interface MergedCluster extends Cluster {
+  /** The daemon clusters it is made of. */
+  members: { daemon: Daemon; id: string }[];
+}
+
+/** Clusters are matched across daemons by name, ignoring case and surrounding spaces. */
+export function mergedIdOf(name: string): string {
+  return `name:${encodeURIComponent(name.trim().toLowerCase())}`;
+}
+
+function newClusterId(): string {
+  return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Entries with the one the sidebar is showing first, so its names, colours and order lead. */
+function orderedEntries(): Entry[] {
+  const all = Array.from(entries.values());
+  return current ? [current, ...all.filter((e) => e !== current)] : all;
+}
+
+/** Every connected daemon's clusters, those with the same name shown as one. */
+export function mergedClusters(): MergedCluster[] {
+  if (merged) return merged;
+  const byId = new Map<string, MergedCluster>();
+  for (const entry of orderedEntries()) {
+    for (const cluster of entry.state.clusters) {
+      const id = mergedIdOf(cluster.name);
+      const found = byId.get(id);
+      if (!found) {
+        byId.set(id, { ...cluster, id, projects: [...cluster.projects], members: [{ daemon: entry, id: cluster.id }] });
+        continue;
+      }
+      for (const key of cluster.projects) if (!found.projects.includes(key)) found.projects.push(key);
+      found.members.push({ daemon: entry, id: cluster.id });
+    }
+  }
+  merged = Array.from(byId.values());
+  return merged;
+}
+
+/** The selected circle: null for Recents, ALL_ID, or a merged cluster id. */
+export function getActive(): string | null {
+  if (active === undefined) {
+    try {
+      const saved = persistence?.read(ACTIVE_KEY);
+      active = saved === null || saved === undefined ? null : (JSON.parse(saved) as string | null);
+    } catch {
+      active = null;
+    }
+  }
+  if (active === null || active === ALL_ID) return active;
+  // A cluster deleted elsewhere falls back to Recents; it is not forgotten while daemons load.
+  return mergedClusters().some((c) => c.id === active) ? active : null;
+}
+
+export function setActive(next: string | null): void {
+  if (getActive() === next) return;
+  active = next;
+  persistence?.write(ACTIVE_KEY, JSON.stringify(next));
+  notify();
+}
+
+function editClusters(entry: Entry, edit: (clusters: Cluster[]) => Cluster[]): void {
+  const next = edit(entry.state.clusters);
+  if (JSON.stringify(next) !== JSON.stringify(entry.state.clusters)) setState(entry, { ...entry.state, clusters: next });
+}
+
+/** A new cluster on one daemon; one of the same name elsewhere joins it. Returns its merged id. */
+export function createCluster(daemon: Daemon, draft: Pick<Cluster, "name" | "color" | "icon">): string | null {
+  const entry = entries.get(daemon);
+  if (!entry) return null;
+  const id = mergedIdOf(draft.name);
+  if (!entry.state.clusters.some((c) => mergedIdOf(c.name) === id)) {
+    editClusters(entry, (clusters) => [...clusters, { id: newClusterId(), ...draft, projects: [] }]);
+  }
+  return id;
+}
+
+/** Renames or recolours a cluster on every daemon that has it. */
+export function updateCluster(id: string, patch: Partial<Pick<Cluster, "name" | "color" | "icon">>): void {
+  const target = mergedClusters().find((c) => c.id === id);
+  if (!target) return;
+  const wasActive = getActive() === id;
+  for (const { daemon, id: own } of target.members) {
+    const entry = entries.get(daemon);
+    if (entry) editClusters(entry, (clusters) => clusters.map((c) => (c.id === own ? { ...c, ...patch } : c)));
+  }
+  if (wasActive && patch.name !== undefined) setActive(mergedIdOf(patch.name));
+}
+
+/** Deletes a cluster from every daemon that has it. Its projects are left in none. */
+export function deleteCluster(id: string): void {
+  const target = mergedClusters().find((c) => c.id === id);
+  if (!target) return;
+  if (getActive() === id) setActive(null);
+  for (const { daemon, id: own } of target.members) {
+    const entry = entries.get(daemon);
+    if (entry) editClusters(entry, (clusters) => clusters.filter((c) => c.id !== own));
+  }
+}
+
+/**
+ * Files a project into a cluster, or into none. It is written to the daemon that owns the project,
+ * under a cluster of that name (created there if needed), and dropped from any other daemon's.
+ */
+export function moveProject(key: string, id: string | null): MergedCluster | null {
+  const target = id === null ? null : (mergedClusters().find((c) => c.id === id) ?? null);
+  if (id !== null && !target) return null;
+  const ownerDaemon = daemonOfKey(key) ?? current;
+  const owner = ownerDaemon ? entries.get(ownerDaemon) : undefined;
+  if (!owner) return null;
+  for (const entry of entries.values()) {
+    if (entry === owner) continue;
+    editClusters(entry, (clusters) => clusters.map((c) => ({ ...c, projects: c.projects.filter((p) => p !== key) })));
+  }
+  editClusters(owner, (clusters) => {
+    const next = clusters.map((c) => ({ ...c, projects: c.projects.filter((p) => p !== key) }));
+    if (!target) return next;
+    const home = next.find((c) => mergedIdOf(c.name) === target.id);
+    if (home) home.projects.push(key);
+    else next.push({ id: newClusterId(), name: target.name, color: target.color, icon: target.icon, projects: [key] });
+    return next;
+  });
+  return target;
+}
+
+/** Puts the clusters in this order on every daemon; names a daemon lacks are skipped there. */
+export function reorderClusters(ids: readonly string[]): void {
+  const rank = (c: Cluster) => {
+    const i = ids.indexOf(mergedIdOf(c.name));
+    return i === -1 ? ids.length : i;
+  };
+  for (const entry of entries.values()) {
+    editClusters(entry, (clusters) => [...clusters].sort((a, b) => rank(a) - rank(b)));
+  }
+}
+
+/** Puts these projects first, in this order, in every daemon's copy of one cluster. */
+export function reorderProjects(id: string, ordered: readonly string[]): void {
+  const target = mergedClusters().find((c) => c.id === id);
+  if (!target) return;
+  for (const { daemon, id: own } of target.members) {
+    const entry = entries.get(daemon);
+    if (!entry) continue;
+    editClusters(entry, (clusters) =>
+      clusters.map((c) => {
+        if (c.id !== own) return c;
+        const first = ordered.filter((key) => c.projects.includes(key));
+        return { ...c, projects: [...first, ...c.projects.filter((key) => !ordered.includes(key))] };
+      }),
+    );
+  }
+}
+
 /** Test seam: drops every daemon and listener. */
 export function resetStore(): void {
   for (const daemon of Array.from(entries.keys())) stopDaemon(daemon);
@@ -421,4 +586,6 @@ export function resetStore(): void {
   listeners.clear();
   current = null;
   persistence = null;
+  merged = null;
+  active = undefined;
 }

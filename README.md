@@ -31,10 +31,11 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 - **Management screen.** Create clusters with a name, an icon (letter, emoji or symbol) and any hex
   color; move projects between clusters; search; and an All tab listing unassigned projects.
 - **One project, one cluster.** New projects join whichever cluster is selected.
-- **One daemon, its own clusters.** Clusters live on the daemon, so every client connected to that
-  machine shares them — and only that machine. With several daemons connected, the bar shows the
-  clusters of the one you are looking at, and an edit is written to that daemon alone. The selected
-  circle stays per client.
+- **One bar for all your daemons.** With several daemons connected, the bar and the Clusters screen
+  show the clusters of all of them, and clusters with the same name are shown as one. Each project
+  is still stored on the daemon that serves it, under a cluster of that name (created there when you
+  file the first one), so nothing of one daemon is copied to another. Renaming, recolouring or
+  deleting a cluster applies on every daemon that has it. The selected circle stays per client.
 - **Recents spans your daemons.** The sidebar lists projects from every connected daemon, and so
   does Recents. Each project keeps its place on the daemon that owns it, so nothing of yours is
   written anywhere else. The time window is one for the whole bar: the one set on the daemon the

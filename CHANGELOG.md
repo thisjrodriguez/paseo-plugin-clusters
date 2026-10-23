@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- Clusters span every connected daemon. The bar and the Clusters screen list the clusters of all
+  of them, and clusters with the same name are shown as one, with the projects of each.
+- Filing a project writes it to the daemon that serves it, under a cluster of that name, created
+  there if needed; it is dropped from any other daemon's clusters. Nothing else is copied between
+  daemons.
+- Renaming, recolouring, deleting and reordering a cluster apply on every daemon that has it.
+- The selected circle is kept per app instead of per daemon; it starts on Recents after updating.
+
 ## 0.3.5
 
 - A "No cluster" tab in the Clusters screen lists the projects no cluster holds yet.
