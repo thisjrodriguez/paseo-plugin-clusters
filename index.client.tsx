@@ -3,7 +3,7 @@ import { ClustersSurface } from "./client/clusters";
 import { t } from "./client/web";
 import { type AgentLike, toMs, usedAt } from "./shared/activity";
 import { readState, writeState } from "./shared/storage";
-import { type Daemon, type WorkspaceStatus, claimScreen, connectDaemon, disconnectDaemon, isWeb, registerProjects, removeWorkspace, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
+import { type Daemon, type WorkspaceStatus, claimScreen, registerProjectRoots, connectDaemon, disconnectDaemon, isWeb, registerProjects, removeWorkspace, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
 
 /** Fallback resync; live updates arrive through the subscriptions below. */
 const RESYNC_MS = 60_000;
@@ -13,10 +13,13 @@ interface WorkspaceLike {
   projectRootPath: string;
   activityAt?: string | null;
   status?: WorkspaceStatus;
+  archivingAt?: string | null;
 }
 
 /** The daemon's own workspace activity, when it has one; the status clock is not activity. */
 function recordWorkspace(daemon: Daemon, w: WorkspaceLike): void {
+  // An archived workspace no longer counts: its project may be left with none.
+  if (w.archivingAt) return removeWorkspace(w.id);
   setWorkspaceActivity(daemon, w.id, {
     at: toMs(w.activityAt),
     projectPath: w.projectRootPath.toLowerCase(),
@@ -127,6 +130,13 @@ export default function contribute(client: PluginClientContext) {
       const { projects } = await client.paseo.projects.list();
       const keys = projects.map(sidebarKey).filter((key): key is string => key !== null);
       registerProjects(daemon, keys);
+      // Remote keys carry no path, so their workspaces are matched through the project's root.
+      registerProjectRoots(
+        projects.flatMap((p) => {
+          const key = sidebarKey(p);
+          return key && p.projectRootPath ? [[key, p.projectRootPath.toLowerCase()] as [string, string]] : [];
+        }),
+      );
     } catch (error) {
       console.warn("[paseo-clusters] Could not read the project list", error);
     }

@@ -464,7 +464,9 @@ function applyFilter(): void {
 
   const recentOrder = recent ? syncRecents(groups, latestByKey) : [];
   for (const { group, key } of groups) {
-    const hide = cluster ? !cluster.projects.includes(key) : recent && !recentOrder.includes(key);
+    const hide = cluster
+      ? !cluster.projects.includes(key) || hasLiveWorkspaces(key) === false
+      : recent && !recentOrder.includes(key);
     setDisplay(group, hide);
     const order = recent
       ? String(recentOrder.indexOf(key))
@@ -720,9 +722,31 @@ interface RingState {
   done: boolean;
 }
 
+/** Root paths of projects whose sidebar key carries none (remote keys). */
+const rootByKey = new Map<string, string>();
+
+export function registerProjectRoots(roots: readonly [string, string][]): void {
+  const other = otherOwner();
+  if (other) return other.registerProjectRoots(roots);
+  for (const [key, path] of roots) rootByKey.set(key, path);
+  scheduleFilter();
+}
+
+/**
+ * Whether a project has a workspace that is not archived. Paseo keeps a project once all its
+ * workspaces are archived; null until the workspace list has loaded, when nothing is hidden.
+ */
+export function hasLiveWorkspaces(key: string): boolean | null {
+  const other = otherOwner();
+  if (other) return other.hasLiveWorkspaces(key);
+  if (activity.size === 0) return null;
+  for (const id of workspacesOfProject(key)) if (activity.has(id)) return true;
+  return false;
+}
+
 function workspacesOfProject(key: string): Set<string> {
   const ids = new Set(knownWorkspaces.get(key) ?? []);
-  const path = projectPathOfKey(key);
+  const path = projectPathOfKey(key) || rootByKey.get(key);
   if (path) for (const [id, info] of activity) if (info.projectPath === path) ids.add(id);
   return ids;
 }
@@ -1492,6 +1516,8 @@ interface Owner {
   setHostLabels: typeof setHostLabels;
   nodeLabelOfKey: typeof nodeLabelOfKey;
   nodeLabelOf: typeof nodeLabelOf;
+  registerProjectRoots: typeof registerProjectRoots;
+  hasLiveWorkspaces: typeof hasLiveWorkspaces;
 }
 
 /**
@@ -1499,7 +1525,7 @@ interface Owner {
  * the same page. An older copy owning the slot cannot answer what a newer one asks of it, so they
  * take separate slots and each runs on its own until every daemon is on the same version.
  */
-const OWNER_KEY = "__paseoClustersOwner:8";
+const OWNER_KEY = "__paseoClustersOwner:9";
 let self: Owner | null = null;
 
 function ownerSlot(): { [OWNER_KEY]?: Owner } {
@@ -1534,6 +1560,8 @@ function otherOwner(): Owner | null {
     setHostLabels,
     nodeLabelOfKey,
     nodeLabelOf,
+    registerProjectRoots,
+    hasLiveWorkspaces,
     startSidebarClusters,
     claimScreen,
   };

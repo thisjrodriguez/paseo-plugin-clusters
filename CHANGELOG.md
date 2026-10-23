@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.5
+
+- Projects whose workspaces are all archived are left out of the Clusters screen and of the
+  sidebar when a cluster is selected. Paseo keeps such projects in its list, so they used to show.
+
 ## 0.5.4
 
 - Creating a cluster with more than one node connected asks which node stores it.

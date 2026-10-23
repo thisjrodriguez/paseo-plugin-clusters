@@ -17,6 +17,7 @@ import {
   nodeLabelOfKey,
   setHostLabels,
   isWeb,
+  hasLiveWorkspaces,
   listSidebarProjects,
   mergedClusters,
   moveProjectToCluster,
@@ -101,7 +102,10 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     },
     enabled: !isWeb,
   });
-  const projects: SidebarProject[] = isWeb ? sidebarProjects : (projectsQuery.data ?? []);
+  // Projects whose workspaces are all archived stay in Paseo's list; they are left out here.
+  const projects: SidebarProject[] = (isWeb ? sidebarProjects : (projectsQuery.data ?? [])).filter(
+    (p) => hasLiveWorkspaces(p.key) !== false,
+  );
 
   // Mobile has no sidebar to filter, so the cluster tab lists its workspaces instead.
   const workspacesQuery = useQuery({
@@ -535,7 +539,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
               tb.id,
               tb.own.name,
               tb.own.color,
-              tb.own.projects.length,
+              tb.own.projects.filter((key) => hasLiveWorkspaces(key) !== false).length,
               clusterIcon(tb.own),
               tb.own.image,
               multiNode ? tb.node : null,
