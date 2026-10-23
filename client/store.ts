@@ -50,7 +50,7 @@ export interface SharedState {
 
 /** The daemon side of one plugin copy: its identity plus its stored clusters. */
 export interface DaemonSync {
-  read(): Promise<{ serverId: string; state: SharedState | null }>;
+  read(): Promise<{ serverId: string; state: SharedState | null; pluginVersion?: string; paseoVersion?: string | null }>;
   write(state: SharedState): Promise<void>;
 }
 
@@ -89,6 +89,8 @@ interface Entry extends Daemon {
   revision: number;
   /** Set once the daemon has answered a read; nothing is written to it before that. */
   loaded: boolean;
+  pluginVersion: string | null;
+  paseoVersion: string | null;
   pushTimer: ReturnType<typeof setTimeout> | null;
   pollTimer: ReturnType<typeof setInterval> | null;
   stopped: boolean;
@@ -104,6 +106,8 @@ let current: Entry | null = null;
 let persistence: Persistence | null = null;
 /** The merged clusters, rebuilt on the next read after any change. */
 let merged: MergedCluster[] | null = null;
+/** The connected daemons as the screen lists them, rebuilt on the next read after any change. */
+let nodeList: Node[] | null = null;
 /** The selected circle; undefined until first read. */
 let active: string | null | undefined;
 
@@ -113,6 +117,7 @@ export function setPersistence(next: Persistence | null): void {
 
 function notify(): void {
   merged = null;
+  nodeList = null;
   for (const listener of listeners) listener();
 }
 
@@ -252,10 +257,15 @@ export async function pull(daemon: Daemon): Promise<void> {
   const entry = entries.get(daemon);
   if (!entry || entry.stopped) return;
   try {
-    const { serverId, state } = await entry.sync.read();
+    const { serverId, state, pluginVersion, paseoVersion } = await entry.sync.read();
     if (entry.stopped) return;
     identify(entry, serverId);
     entry.loaded = true;
+    if (entry.pluginVersion !== (pluginVersion ?? null) || entry.paseoVersion !== (paseoVersion ?? null)) {
+      entry.pluginVersion = pluginVersion ?? null;
+      entry.paseoVersion = paseoVersion ?? null;
+      notify();
+    }
     // A daemon with no clusters yet keeps none: the client never seeds it with its own.
     if (state && state.revision >= entry.revision) adopt(entry, state);
   } catch (error) {
@@ -276,6 +286,8 @@ export function startDaemon(sync: DaemonSync, options: DaemonOptions = {}): Daem
     state: EMPTY,
     revision: 0,
     loaded: false,
+    pluginVersion: null,
+    paseoVersion: null,
     pushTimer: null,
     pollTimer: null,
     stopped: false,
@@ -338,6 +350,47 @@ export function registerProjectPath(daemon: Daemon, path: string): void {
   if (path && entries.has(daemon)) daemonByPath.set(path.toLowerCase(), daemon);
 }
 
+/** The app's id for the host a daemon serves, as the Clusters screen of that host reports it. */
+export function registerHost(daemon: Daemon, hostId: string): void {
+  if (!hostId || !entries.has(daemon) || daemonByHost.get(hostId) === daemon) return;
+  daemonByHost.set(hostId, daemon);
+  notify();
+}
+
+/** The app's id for the host a daemon serves, once known. */
+export function hostIdOf(daemon: Daemon): string | null {
+  for (const [host, owner] of daemonByHost) if (owner === daemon) return host;
+  return null;
+}
+
+/** The app's id for the host a sidebar project lives on. */
+export function hostIdOfKey(key: string): string | null {
+  const local = /^host:([^:]+):/.exec(key);
+  if (local) return local[1];
+  const daemon = daemonOfKey(key);
+  return daemon ? hostIdOf(daemon) : null;
+}
+
+/** One connected daemon, with the versions it reported. */
+export interface Node {
+  daemon: Daemon;
+  hostId: string | null;
+  pluginVersion: string | null;
+  paseoVersion: string | null;
+}
+
+export function nodes(): Node[] {
+  nodeList ??= Array.from(entries.values())
+    .filter((entry) => entry.loaded)
+    .map((entry) => ({
+      daemon: entry,
+      hostId: hostIdOf(entry),
+      pluginVersion: entry.pluginVersion,
+      paseoVersion: entry.paseoVersion,
+    }));
+  return nodeList;
+}
+
 export function registerProjectKey(daemon: Daemon, key: string): void {
   if (key && entries.has(daemon)) daemonByKey.set(key, daemon);
 }
@@ -356,7 +409,10 @@ export function daemonOfKey(key: string): Daemon | null {
   // Case is not compared: daemons report paths lowercased, the sidebar keeps them as typed.
   const byPath = daemonByPath.get(path.toLowerCase());
   if (byPath && entries.has(byPath)) {
-    daemonByHost.set(host, byPath);
+    if (daemonByHost.get(host) !== byPath) {
+      daemonByHost.set(host, byPath);
+      nodeList = null;
+    }
     return byPath;
   }
   const byHost = daemonByHost.get(host);
@@ -587,5 +643,6 @@ export function resetStore(): void {
   current = null;
   persistence = null;
   merged = null;
+  nodeList = null;
   active = undefined;
 }

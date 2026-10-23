@@ -34,7 +34,13 @@ export const readState = defineRpc({
    * `serverId` is the daemon's own identity. The app does not hand client contributions its server
    * id, so clients ask the daemon for it and keep each daemon's clusters apart under it.
    */
-  output: z.object({ serverId: z.string(), state: stateSchema.nullable() }),
+  output: z.object({
+    serverId: z.string(),
+    state: stateSchema.nullable(),
+    /** Sent from 0.4.1 on; absent means an older plugin. */
+    pluginVersion: z.string().optional(),
+    paseoVersion: z.string().nullable().optional(),
+  }),
 });
 
 export const writeState = defineRpc({

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- The Clusters screen lists every node with its Paseo and plugin versions, and warns when they
+  differ or a node runs a plugin older than 0.4.1, with the command to update.
+- Each cluster names the nodes it is on, and each project the node it lives on.
+
 ## 0.4.0
 
 - Clusters span every connected daemon. The bar and the Clusters screen list the clusters of all

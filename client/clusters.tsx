@@ -1,4 +1,4 @@
-import { type PluginSurfaceProps, usePaseo } from "@getpaseo/plugin/client";
+import { type PluginHostSummary, type PluginSurfaceProps, useHosts, usePaseo } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
@@ -14,11 +14,15 @@ import {
   focusDaemon,
   getActive,
   getState,
+  hostIdOf,
+  hostIdOfKey,
   isWeb,
   listSidebarProjects,
   mergedClusters,
   mergedIdOf,
   moveProjectToCluster,
+  nodes,
+  registerHost,
   setState,
   MAX_RECENT_HOURS,
   MIN_RECENT_HOURS,
@@ -29,6 +33,10 @@ import {
 import { ClusterForm, type ClusterDraft } from "./cluster-form";
 
 const ALL_TAB = "__all__";
+const NO_HOSTS: readonly PluginHostSummary[] = [];
+/** Paseo before 0.9 has no host list; the screen then names only the nodes it hears from. */
+const useHostList: () => readonly PluginHostSummary[] = typeof useHosts === "function" ? useHosts : () => NO_HOSTS;
+const UPDATE_COMMAND = "paseo plugin update paseo-clusters --yes";
 /** Local to this screen: the projects no cluster holds yet. */
 const UNASSIGNED_TAB = "__unassigned__";
 
@@ -51,6 +59,10 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
   const snapshot = useCallback(() => getState(daemon), [daemon]);
   const state = useSyncExternalStore(subscribe, snapshot);
   const clusters = useSyncExternalStore(subscribe, mergedClusters);
+  const connected = useSyncExternalStore(subscribe, nodes);
+  const hosts = useHostList();
+  // This screen is the one place the app names the host its daemon serves.
+  useEffect(() => registerHost(daemon, host.id), [daemon, host.id]);
   // Looking at a daemon's clusters is what points the sidebar bar at that daemon.
   useEffect(() => focusDaemon(daemon), [daemon]);
   const strings = t();
@@ -116,6 +128,24 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     }),
     [c, layout.compact],
   );
+
+  const hostLabel = (id: string | null) =>
+    id === null ? null : (hosts.find((h) => h.serverId === id)?.label ?? (id === host.id ? host.label : id));
+
+  // Every configured host, plus any connected daemon whose host the app has not listed.
+  const nodeRows = [
+    ...hosts.map((h) => ({ id: h.serverId, label: h.label, online: h.status === "online", node: connected.find((n) => n.hostId === h.serverId) ?? null })),
+    ...connected
+      .filter((n) => !n.hostId || !hosts.some((h) => h.serverId === n.hostId))
+      .map((n) => ({ id: n.hostId ?? "", label: hostLabel(n.hostId) ?? "?", online: true, node: n })),
+  ];
+  const online = nodeRows.filter((r) => r.online);
+  const distinct = (values: (string | null | undefined)[]) => new Set(values.map((v) => v ?? "")).size;
+  const mismatch =
+    online.length > 1 &&
+    (online.some((r) => !r.node?.pluginVersion) ||
+      distinct(online.map((r) => r.node?.pluginVersion)) > 1 ||
+      distinct(online.map((r) => r.node?.paseoVersion)) > 1);
 
   const clusterOf = new Map<string, MergedCluster>();
   for (const cl of clusters) for (const key of cl.projects) clusterOf.set(key, cl);
@@ -278,7 +308,9 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
             {p.label}
           </Text>
           <Text style={styles.muted} numberOfLines={1}>
-            {p.key.replace(/^host:[^:]+:/, "").replace(/^remote:/, "")}
+            {[hostLabel(hostIdOfKey(p.key)), p.key.replace(/^host:[^:]+:/, "").replace(/^remote:/, "")]
+              .filter(Boolean)
+              .join(" · ")}
           </Text>
         </View>
         <View style={[styles.rowWrap, { gap: 6 }]}>
@@ -322,6 +354,30 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
       </Text>
 
       <View style={{ gap: 6 }}>
+        <Text style={styles.section}>{strings.nodes}</Text>
+        {mismatch ? (
+          <View style={{ padding: 10, borderRadius: 8, borderWidth: 1, borderColor: "#f59e0b", backgroundColor: c.surface1, gap: 4 }}>
+            <Text style={styles.text}>⚠ {strings.versionMismatch}</Text>
+            <Text style={[styles.text, { fontFamily: "monospace" }]} selectable>
+              {UPDATE_COMMAND}
+            </Text>
+          </View>
+        ) : null}
+        {nodeRows.map((r) => (
+          <View key={r.id || r.label} style={[styles.rowWrap, { justifyContent: "space-between" }]}>
+            <Text style={styles.text}>{r.label}</Text>
+            <Text style={styles.muted}>
+              {!r.online
+                ? strings.nodeOffline
+                : r.node?.pluginVersion
+                  ? strings.nodeVersions(r.node.paseoVersion ?? strings.unknownVersion, r.node.pluginVersion)
+                  : strings.nodeOldPlugin}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={{ gap: 6 }}>
         <Text style={styles.section}>{strings.recentWindow}</Text>
         <View style={styles.rowWrap}>
           {stepButton("−", strings.decrease, hours <= MIN_RECENT_HOURS, () => setHours(hours - 1))}
@@ -362,7 +418,14 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
       {current ? (
         <>
           <View style={[styles.rowWrap, { justifyContent: "space-between", marginTop: 4 }]}>
-            <Text style={styles.title}>{current.name}</Text>
+            <View style={{ gap: 2 }}>
+              <Text style={styles.title}>{current.name}</Text>
+              <Text style={styles.muted}>
+                {strings.onNodes(
+                  Array.from(new Set(current.members.map((m) => hostLabel(hostIdOf(m.daemon)) ?? "?"))).join(", "),
+                )}
+              </Text>
+            </View>
             <View style={styles.rowWrap}>
               <Pressable accessibilityRole="button" style={styles.ghost} onPress={() => setForm("edit")}>
                 <Text style={styles.text}>{strings.edit}</Text>

@@ -1,10 +1,12 @@
 import type { RpcInput } from "@getpaseo/plugin";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { writeState } from "../shared/storage";
 import { stateSchema } from "../shared/storage";
+import { version as PLUGIN_VERSION } from "../package.json";
 
 /** Shared by every client of this daemon, so clusters follow the machine, not the app. */
 const HOME = process.env.PASEO_HOME ?? join(homedir(), ".paseo");
@@ -17,15 +19,37 @@ const FILE = join(HOME, "plugins", "paseo-clusters.json");
  */
 const SERVER_ID = createHash("sha256").update(`${hostname()}\u0000${resolve(HOME)}`).digest("hex").slice(0, 16);
 
+/**
+ * The Paseo serving this plugin. The SDK does not tell plugins, so it is read from the package the
+ * plugin process was started from; null when that cannot be found.
+ */
+const PASEO_VERSION = (() => {
+  let dir = dirname(process.argv[1] ?? "");
+  for (let depth = 0; depth < 10; depth += 1) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { name?: string; version?: string };
+      if (pkg.name?.startsWith("@getpaseo/") && pkg.version) return pkg.version;
+    } catch {
+      // No package.json at this level; keep climbing.
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+})();
+
+const identity = { serverId: SERVER_ID, pluginVersion: PLUGIN_VERSION, paseoVersion: PASEO_VERSION };
+
 export async function readClusters() {
   try {
     const parsed = stateSchema.safeParse(JSON.parse(await readFile(FILE, "utf8")));
-    return { serverId: SERVER_ID, state: parsed.success ? parsed.data : null };
+    return { ...identity, state: parsed.success ? parsed.data : null };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       console.warn("[paseo-clusters] No se pudo leer el estado guardado", error);
     }
-    return { serverId: SERVER_ID, state: null };
+    return { ...identity, state: null };
   }
 }
 

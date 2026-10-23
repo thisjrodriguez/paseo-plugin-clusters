@@ -853,6 +853,31 @@ export function deleteCluster(id: string): void {
   store.deleteCluster(id);
 }
 
+/** The connected daemons with the versions they reported. */
+export function nodes(): store.Node[] {
+  const other = otherOwner();
+  if (other) return other.nodes();
+  return store.nodes();
+}
+
+export function registerHost(daemon: Daemon, hostId: string): void {
+  const other = otherOwner();
+  if (other) return other.registerHost(daemon, hostId);
+  store.registerHost(daemon, hostId);
+}
+
+export function hostIdOf(daemon: Daemon): string | null {
+  const other = otherOwner();
+  if (other) return other.hostIdOf(daemon);
+  return store.hostIdOf(daemon);
+}
+
+export function hostIdOfKey(key: string): string | null {
+  const other = otherOwner();
+  if (other) return other.hostIdOfKey(key);
+  return store.hostIdOfKey(key);
+}
+
 function clusterCircleAt(x: number, y: number): El | null {
   for (const el of document.elementsFromPoint(x, y)) {
     const hit = el.closest("[data-cluster-id]");
@@ -1345,6 +1370,10 @@ interface Owner {
   createCluster: typeof createCluster;
   updateCluster: typeof updateCluster;
   deleteCluster: typeof deleteCluster;
+  nodes: typeof nodes;
+  registerHost: typeof registerHost;
+  hostIdOf: typeof hostIdOf;
+  hostIdOfKey: typeof hostIdOfKey;
   startSidebarClusters: typeof startSidebarClusters;
 }
 
@@ -1353,7 +1382,7 @@ interface Owner {
  * the same page. An older copy owning the slot cannot answer what a newer one asks of it, so they
  * take separate slots and each runs on its own until every daemon is on the same version.
  */
-const OWNER_KEY = "__paseoClustersOwner:4";
+const OWNER_KEY = "__paseoClustersOwner:5";
 let self: Owner | null = null;
 
 function ownerSlot(): { [OWNER_KEY]?: Owner } {
@@ -1384,6 +1413,10 @@ function otherOwner(): Owner | null {
     createCluster,
     updateCluster,
     deleteCluster,
+    nodes,
+    registerHost,
+    hostIdOf,
+    hostIdOfKey,
     startSidebarClusters,
   };
   const slot = ownerSlot();
