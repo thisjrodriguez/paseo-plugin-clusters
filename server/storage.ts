@@ -6,7 +6,7 @@ import { homedir, hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { writeState } from "../shared/storage";
 import { stateSchema } from "../shared/storage";
-import { version as PLUGIN_VERSION } from "../package.json";
+import { PLUGIN_VERSION } from "../shared/version";
 
 /** Shared by every client of this daemon, so clusters follow the machine, not the app. */
 const HOME = process.env.PASEO_HOME ?? join(homedir(), ".paseo");
