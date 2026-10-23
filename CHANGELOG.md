@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.7
+
+- A new project with no workspace yet shows again. 0.5.5 hid every project without a live
+  workspace; now only those that had agents and have no workspace left are hidden.
+
 ## 0.5.6
 
 - Clusters of different nodes can be interleaved in the bar. Dragging a circle stores a shared

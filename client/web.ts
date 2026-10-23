@@ -732,16 +732,37 @@ export function registerProjectRoots(roots: readonly [string, string][]): void {
   scheduleFilter();
 }
 
+/** Where agents have ever run, archived ones included, normalised to forward slashes. */
+const historyPaths = new Set<string>();
+let historyLoaded = false;
+
+function normalisePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+export function registerProjectHistory(paths: readonly string[]): void {
+  const other = otherOwner();
+  if (other) return other.registerProjectHistory(paths);
+  for (const path of paths) historyPaths.add(normalisePath(path));
+  historyLoaded = true;
+  scheduleFilter();
+}
+
 /**
- * Whether a project has a workspace that is not archived. Paseo keeps a project once all its
- * workspaces are archived; null until the workspace list has loaded, when nothing is hidden.
+ * False only for a project that has had workspaces and has none left: Paseo keeps a project once
+ * all its workspaces are archived. A new project with no workspace yet still counts as live. Null
+ * while the workspace list or the agent history is loading, when nothing is hidden.
  */
 export function hasLiveWorkspaces(key: string): boolean | null {
   const other = otherOwner();
   if (other) return other.hasLiveWorkspaces(key);
-  if (activity.size === 0) return null;
+  if (activity.size === 0 || !historyLoaded) return null;
   for (const id of workspacesOfProject(key)) if (activity.has(id)) return true;
-  return false;
+  const root = projectPathOfKey(key) || rootByKey.get(key);
+  if (!root) return true;
+  const base = normalisePath(root);
+  for (const path of historyPaths) if (path === base || path.startsWith(`${base}/`)) return false;
+  return true;
 }
 
 function workspacesOfProject(key: string): Set<string> {
@@ -1517,6 +1538,7 @@ interface Owner {
   nodeLabelOfKey: typeof nodeLabelOfKey;
   nodeLabelOf: typeof nodeLabelOf;
   registerProjectRoots: typeof registerProjectRoots;
+  registerProjectHistory: typeof registerProjectHistory;
   hasLiveWorkspaces: typeof hasLiveWorkspaces;
 }
 
@@ -1525,7 +1547,7 @@ interface Owner {
  * the same page. An older copy owning the slot cannot answer what a newer one asks of it, so they
  * take separate slots and each runs on its own until every daemon is on the same version.
  */
-const OWNER_KEY = "__paseoClustersOwner:9";
+const OWNER_KEY = "__paseoClustersOwner:10";
 let self: Owner | null = null;
 
 function ownerSlot(): { [OWNER_KEY]?: Owner } {
@@ -1561,6 +1583,7 @@ function otherOwner(): Owner | null {
     nodeLabelOfKey,
     nodeLabelOf,
     registerProjectRoots,
+    registerProjectHistory,
     hasLiveWorkspaces,
     startSidebarClusters,
     claimScreen,

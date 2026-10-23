@@ -3,7 +3,7 @@ import { ClustersSurface } from "./client/clusters";
 import { t } from "./client/web";
 import { type AgentLike, toMs, usedAt } from "./shared/activity";
 import { readState, writeState } from "./shared/storage";
-import { type Daemon, type WorkspaceStatus, claimScreen, registerProjectRoots, connectDaemon, disconnectDaemon, isWeb, registerProjects, removeWorkspace, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
+import { type Daemon, type WorkspaceStatus, claimScreen, registerProjectHistory, registerProjectRoots, connectDaemon, disconnectDaemon, isWeb, registerProjects, removeWorkspace, setWorkspaceActivity, startSidebarClusters, touchWorkspace } from "./client/web";
 
 /** Fallback resync; live updates arrive through the subscriptions below. */
 const RESYNC_MS = 60_000;
@@ -142,8 +142,31 @@ export default function contribute(client: PluginClientContext) {
     }
   };
 
+  // Where agents have ever run, archived included: a project with history and no workspace left
+  // is one whose workspaces were all archived, unlike a new one that has none yet.
+  const resyncHistory = async () => {
+    try {
+      const paths: string[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < 50; page += 1) {
+        const result = await client.paseo.agents.list({
+          filter: { includeArchived: true },
+          page: cursor ? { limit: 200, cursor } : { limit: 200 },
+        });
+        for (const entry of result.entries) if (entry.agent.cwd) paths.push(entry.agent.cwd);
+        if (!result.pageInfo.hasMore || !result.pageInfo.nextCursor) break;
+        cursor = result.pageInfo.nextCursor;
+      }
+      registerProjectHistory(paths);
+    } catch (error) {
+      console.warn("[paseo-clusters] Could not read the agent history", error);
+    }
+  };
+
   void resyncAgents();
   void resyncProjects();
+  void resyncHistory();
+  const historyTimer = setInterval(() => void resyncHistory(), 10 * 60_000);
   const timer = setInterval(() => {
     void resyncWorkspaces();
     void resyncAgents();
@@ -154,6 +177,7 @@ export default function contribute(client: PluginClientContext) {
     released = true;
     void release?.();
     clearInterval(timer);
+    clearInterval(historyTimer);
     stopWorkspaces();
     stopAgents();
     releaseScreen();
