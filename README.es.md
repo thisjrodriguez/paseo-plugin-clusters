@@ -32,11 +32,10 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
   mover proyectos entre clusters; buscador; y la pestaña Todos con los proyectos sin cluster.
 - **Un proyecto, un cluster.** Los proyectos nuevos entran en el cluster que tengas seleccionado.
 - **Una barra para todos tus daemons.** Con varios daemons conectados, la barra y la ventana
-  Clusters muestran los clusters de todos, y los que tienen el mismo nombre salen como uno solo.
-  Cada proyecto se sigue guardando en el daemon que lo sirve, bajo un cluster con ese nombre (que se
-  crea allí al meter el primero), así que nada de un daemon se copia a otro. Renombrar, cambiar el
-  color o borrar un cluster se aplica en todos los daemons que lo tienen. La vista seleccionada es
-  de cada cliente.
+  Clusters muestran los clusters de todos, cada uno por separado: si dos nodos tienen un «Personal»
+  salen los dos, y la ventana Clusters indica el nodo de cada uno. Un cluster se guarda en el nodo
+  donde se creó y puede tener proyectos de cualquier nodo. Renombrar o borrar un cluster cambia solo
+  ese. La vista seleccionada es de cada cliente.
 - **Recientes abarca todos tus daemons.** La barra lateral lista proyectos de todos los daemons
   conectados, y Recientes también. Cada proyecto guarda su sitio en el daemon que lo sirve, así que
   nada tuyo se escribe en otro. La ventana de tiempo es una para toda la barra: la del daemon al

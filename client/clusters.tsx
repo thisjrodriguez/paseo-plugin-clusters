@@ -19,7 +19,6 @@ import {
   isWeb,
   listSidebarProjects,
   mergedClusters,
-  mergedIdOf,
   moveProjectToCluster,
   nodes,
   registerHost,
@@ -66,8 +65,8 @@ function projectKey(serverId: string, projectId: string): string {
 }
 
 /**
- * One screen per connected daemon. It shows the clusters of every connected daemon, those with the
- * same name as one; projects are filed on their own daemon, and new clusters start on this one.
+ * The Clusters screen. It shows the clusters of every connected daemon, each on its own and named
+ * with its node; any project can go into any cluster, and new clusters start on this daemon.
  */
 export interface ClustersSurfaceProps extends PluginSurfaceProps {
   daemon: Daemon;
@@ -169,8 +168,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
   const clusterOf = new Map<string, MergedCluster>();
   for (const cl of clusters) for (const key of cl.projects) clusterOf.set(key, cl);
 
-  // One tab per daemon's cluster: clusters with the same name on two nodes are two tabs, each
-  // named with its node, while the sidebar circles still show them as one.
+  // One tab per cluster, named with its node when more than one is connected.
   const multiNode = connected.length > 1;
   const tabs = clusters.flatMap((cl) =>
     cl.members.map((m) => {
@@ -332,7 +330,11 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     >
       {target ? <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: target.color }} /> : null}
       <Text style={{ color: isCurrent ? c.foreground : c.foregroundMuted, fontSize: 12 }}>
-        {target ? target.name : strings.noCluster}
+        {target
+          ? multiNode
+            ? `${target.name} · ${nodeLabelOf(target.members[0].daemon) ?? "?"}`
+            : target.name
+          : strings.noCluster}
       </Text>
     </Pressable>
   );
@@ -425,8 +427,6 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
           onSubmit={(draft) => {
             if (!editing) return create(draft);
             editOwn(draft);
-            // A rename may move it under another name; keep it selected there.
-            setTab(`${mergedIdOf(draft.name)}@${editing.id}`);
             setForm(null);
           }}
         />

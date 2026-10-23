@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.3
+
+- Clusters are no longer merged by name. Every cluster is shown on its own, in the sidebar bar and
+  in the Clusters screen, with its node named when more than one is connected.
+- A project of any node can go into any cluster. It is stored on the cluster's node and leaves
+  every other cluster.
+- Renaming or deleting a cluster changes that cluster only; its namesakes on other nodes stay.
+
 ## 0.5.2
 
 - The Clusters screen shows one tab per cluster on each node: two nodes with a "Personal" each

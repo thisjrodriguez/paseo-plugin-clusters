@@ -96,7 +96,7 @@ export const isWeb = Platform.OS === "web";
 export const COLORS = ["#3b82f6", "#ef4444", "#f97316", "#10b981", "#a855f7", "#eab308", "#ec4899", "#14b8a6"];
 
 export type { Cluster, ClusterState, MergedCluster, SharedState, Daemon, DaemonSync } from "./store";
-export const { ALL_ID, DEFAULT_RECENT_HOURS, MIN_RECENT_HOURS, MAX_RECENT_HOURS, mergedIdOf } = store;
+export const { ALL_ID, DEFAULT_RECENT_HOURS, MIN_RECENT_HOURS, MAX_RECENT_HOURS } = store;
 
 export function clusterIcon(cluster: Pick<Cluster, "name" | "icon">): string {
   const icon = cluster.icon?.trim();
@@ -798,7 +798,9 @@ function renderBar(bar: El, onAdd: () => void): void {
       circle({
         label: c.name,
         clusterId: c.id,
-        tooltipText: `${c.name} · ${t().clusterProjects(c.projects.length)}`,
+        tooltipText: [c.name, store.loadedCount() > 1 ? store.nodeLabelOf(c.members[0].daemon) : null, t().clusterProjects(c.projects.length)]
+          .filter(Boolean)
+          .join(" · "),
         active: c.id === active,
         onClick: () => setActive(c.id),
         text: c.image ? "" : clusterIcon(c),
@@ -863,7 +865,7 @@ export function moveProjectToCluster(key: string, clusterId: string | null): Clu
   return store.moveProject(key, clusterId);
 }
 
-/** Every connected daemon's clusters, those with the same name shown as one. */
+/** Every connected daemon's clusters, each on its own. */
 export function mergedClusters(): MergedCluster[] {
   const other = otherOwner();
   if (other) return other.mergedClusters();
