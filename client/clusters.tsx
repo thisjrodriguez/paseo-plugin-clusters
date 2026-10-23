@@ -37,6 +37,25 @@ const NO_HOSTS: readonly PluginHostSummary[] = [];
 /** Paseo before 0.9 has no host list; the screen then names only the nodes it hears from. */
 const useHostList: () => readonly PluginHostSummary[] = typeof useHosts === "function" ? useHosts : () => NO_HOSTS;
 const UPDATE_COMMAND = "paseo plugin update paseo-clusters --yes";
+const OUTDATED = "#ef4444";
+
+/** Orders versions like 0.13.0-beta.1: numbers first, and a pre-release before its release. */
+function compareVersions(a: string, b: string): number {
+  const [coreA, preA] = a.split("-", 2);
+  const [coreB, preB] = b.split("-", 2);
+  const partsA = coreA.split(".").map(Number);
+  const partsB = coreB.split(".").map(Number);
+  for (let i = 0; i < Math.max(partsA.length, partsB.length); i += 1) {
+    const diff = (partsA[i] || 0) - (partsB[i] || 0);
+    if (diff) return diff;
+  }
+  if (!preA || !preB) return preA ? -1 : preB ? 1 : 0;
+  return preA.localeCompare(preB, undefined, { numeric: true });
+}
+
+function newest(versions: (string | null | undefined)[]): string | null {
+  return versions.filter((v): v is string => !!v).sort(compareVersions).pop() ?? null;
+}
 /** Local to this screen: the projects no cluster holds yet. */
 const UNASSIGNED_TAB = "__unassigned__";
 
@@ -139,13 +158,9 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
       .filter((n) => !n.hostId || !hosts.some((h) => h.serverId === n.hostId))
       .map((n) => ({ id: n.hostId ?? "", label: hostLabel(n.hostId) ?? "?", online: true, node: n })),
   ];
-  const online = nodeRows.filter((r) => r.online);
-  const distinct = (values: (string | null | undefined)[]) => new Set(values.map((v) => v ?? "")).size;
-  const mismatch =
-    online.length > 1 &&
-    (online.some((r) => !r.node?.pluginVersion) ||
-      distinct(online.map((r) => r.node?.pluginVersion)) > 1 ||
-      distinct(online.map((r) => r.node?.paseoVersion)) > 1);
+  const latestPaseo = newest(nodeRows.map((r) => r.node?.paseoVersion));
+  const latestPlugin = newest(nodeRows.map((r) => r.node?.pluginVersion));
+  const [tip, setTip] = useState<string | null>(null);
 
   const clusterOf = new Map<string, MergedCluster>();
   for (const cl of clusters) for (const key of cl.projects) clusterOf.set(key, cl);
@@ -353,28 +368,72 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
 {isWeb ? strings.intro : strings.mobileNotice}
       </Text>
 
-      <View style={{ gap: 6 }}>
-        <Text style={styles.section}>{strings.nodes}</Text>
-        {mismatch ? (
-          <View style={{ padding: 10, borderRadius: 8, borderWidth: 1, borderColor: "#f59e0b", backgroundColor: c.surface1, gap: 4 }}>
-            <Text style={styles.text}>⚠ {strings.versionMismatch}</Text>
-            <Text style={[styles.text, { fontFamily: "monospace" }]} selectable>
-              {UPDATE_COMMAND}
-            </Text>
-          </View>
-        ) : null}
-        {nodeRows.map((r) => (
-          <View key={r.id || r.label} style={[styles.rowWrap, { justifyContent: "space-between" }]}>
-            <Text style={styles.text}>{r.label}</Text>
-            <Text style={styles.muted}>
-              {!r.online
-                ? strings.nodeOffline
-                : r.node?.pluginVersion
-                  ? strings.nodeVersions(r.node.paseoVersion ?? strings.unknownVersion, r.node.pluginVersion)
-                  : strings.nodeOldPlugin}
-            </Text>
-          </View>
-        ))}
+      <View style={{ alignSelf: "flex-start", borderWidth: 1, borderColor: c.border, borderRadius: 6, paddingVertical: 4 }}>
+        {[{ id: "head", head: true }, ...nodeRows.map((r) => ({ ...r, head: false }))].map((r) => {
+          const row = r.head ? null : (r as (typeof nodeRows)[number]);
+          const cell = (key: string, text: string, width: number, outdated: string | null, muted = false) => (
+            <Pressable
+              key={key}
+              onHoverIn={outdated ? () => setTip(`${row?.id}:${key}`) : undefined}
+              onHoverOut={outdated ? () => setTip(null) : undefined}
+              style={{ width, paddingHorizontal: 8, paddingVertical: 2 }}
+            >
+              <Text
+                numberOfLines={1}
+                style={{
+                  fontSize: 12,
+                  fontWeight: r.head ? "600" : "400",
+                  color: outdated ? OUTDATED : muted || r.head ? c.foregroundMuted : c.foreground,
+                }}
+              >
+                {text}
+              </Text>
+              {outdated && tip === `${row?.id}:${key}` ? (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: 20,
+                    left: 8,
+                    zIndex: 10,
+                    width: 240,
+                    padding: 6,
+                    borderRadius: 4,
+                    backgroundColor: c.surface2,
+                    borderWidth: 1,
+                    borderColor: OUTDATED,
+                  }}
+                >
+                  <Text style={{ fontSize: 11, color: c.foreground }}>{outdated}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+          if (!row) {
+            return (
+              <View key="head" style={{ flexDirection: "row" }}>
+                {cell("node", strings.nodeHeader, 150, null)}
+                {cell("paseo", "Paseo", 110, null)}
+                {cell("plugin", "Plugin", 70, null)}
+              </View>
+            );
+          }
+          const paseo = row.node?.paseoVersion ?? null;
+          const plugin = row.node?.pluginVersion ?? null;
+          const oldPaseo = row.online && paseo && latestPaseo && compareVersions(paseo, latestPaseo) < 0;
+          const oldPlugin = row.online && (!plugin || (latestPlugin && compareVersions(plugin, latestPlugin) < 0));
+          return (
+            <View key={row.id || row.label} style={{ flexDirection: "row", zIndex: tip?.startsWith(`${row.id}:`) ? 10 : 0 }}>
+              {cell("node", row.label, 150, null, !row.online)}
+              {cell("paseo", row.online ? (paseo ?? "?") : "—", 110, oldPaseo ? strings.paseoOutdated(latestPaseo ?? "") : null, !paseo)}
+              {cell(
+                "plugin",
+                !row.online ? "—" : (plugin ?? "< 0.4.1"),
+                70,
+                oldPlugin ? strings.pluginOutdated(latestPlugin ?? "0.4.1", UPDATE_COMMAND) : null,
+              )}
+            </View>
+          );
+        })}
       </View>
 
       <View style={{ gap: 6 }}>

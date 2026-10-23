@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3
+
+- Node versions are a small table: node, Paseo, plugin. A version behind the newest among your
+  nodes shows in red, with a tooltip saying what to update.
+
 ## 0.4.2
 
 - 0.4.1 on npm was built from a commit that imported package.json, which Paseo refuses to build,
