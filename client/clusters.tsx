@@ -15,7 +15,8 @@ import {
   getActive,
   getState,
   hostIdOf,
-  hostIdOfKey,
+  nodeLabelOfKey,
+  setHostLabels,
   isWeb,
   listSidebarProjects,
   mergedClusters,
@@ -147,6 +148,11 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     }),
     [c, layout.compact],
   );
+
+  // The sidebar tags projects with these names, and it has no hook to read them itself.
+  useEffect(() => {
+    if (hosts.length) setHostLabels(Object.fromEntries(hosts.map((h) => [h.serverId, h.label])));
+  }, [hosts]);
 
   const hostLabel = (id: string | null) =>
     id === null ? null : (hosts.find((h) => h.serverId === id)?.label ?? (id === host.id ? host.label : id));
@@ -324,13 +330,28 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
       <View key={p.key}>
       <View style={styles.row}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.text} numberOfLines={1}>
-            {p.label}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Text style={[styles.text, { flexShrink: 1 }]} numberOfLines={1}>
+              {p.label}
+            </Text>
+            {nodeLabelOfKey(p.key) ? (
+              <Text
+                numberOfLines={1}
+                style={{
+                  fontSize: 11,
+                  color: c.foregroundMuted,
+                  borderWidth: 1,
+                  borderColor: c.border,
+                  borderRadius: 4,
+                  paddingHorizontal: 5,
+                }}
+              >
+                {nodeLabelOfKey(p.key)}
+              </Text>
+            ) : null}
+          </View>
           <Text style={styles.muted} numberOfLines={1}>
-            {[hostLabel(hostIdOfKey(p.key)), p.key.replace(/^host:[^:]+:/, "").replace(/^remote:/, "")]
-              .filter(Boolean)
-              .join(" · ")}
+            {p.key.replace(/^host:[^:]+:/, "").replace(/^remote:/, "")}
           </Text>
         </View>
         <View style={[styles.rowWrap, { gap: 6 }]}>

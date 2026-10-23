@@ -48,7 +48,13 @@ const HOST_ID = (() => {
   }
 })();
 
-const identity = { serverId: SERVER_ID, pluginVersion: PLUGIN_VERSION, paseoVersion: PASEO_VERSION, hostId: HOST_ID };
+const identity = {
+  serverId: SERVER_ID,
+  pluginVersion: PLUGIN_VERSION,
+  paseoVersion: PASEO_VERSION,
+  hostId: HOST_ID,
+  hostName: hostname(),
+};
 
 export async function readClusters() {
   try {

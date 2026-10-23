@@ -52,7 +52,7 @@ export interface SharedState {
 
 /** The daemon side of one plugin copy: its identity plus its stored clusters. */
 export interface DaemonSync {
-  read(): Promise<{ serverId: string; state: SharedState | null; pluginVersion?: string; paseoVersion?: string | null; hostId?: string | null }>;
+  read(): Promise<{ serverId: string; state: SharedState | null; pluginVersion?: string; paseoVersion?: string | null; hostId?: string | null; hostName?: string }>;
   write(state: SharedState): Promise<void>;
 }
 
@@ -93,6 +93,7 @@ interface Entry extends Daemon {
   loaded: boolean;
   pluginVersion: string | null;
   paseoVersion: string | null;
+  hostName: string | null;
   pushTimer: ReturnType<typeof setTimeout> | null;
   pollTimer: ReturnType<typeof setInterval> | null;
   stopped: boolean;
@@ -259,14 +260,19 @@ export async function pull(daemon: Daemon): Promise<void> {
   const entry = entries.get(daemon);
   if (!entry || entry.stopped) return;
   try {
-    const { serverId, state, pluginVersion, paseoVersion, hostId } = await entry.sync.read();
+    const { serverId, state, pluginVersion, paseoVersion, hostId, hostName } = await entry.sync.read();
     if (entry.stopped) return;
     identify(entry, serverId);
     if (hostId) registerHost(entry, hostId);
     entry.loaded = true;
-    if (entry.pluginVersion !== (pluginVersion ?? null) || entry.paseoVersion !== (paseoVersion ?? null)) {
+    if (
+      entry.pluginVersion !== (pluginVersion ?? null) ||
+      entry.paseoVersion !== (paseoVersion ?? null) ||
+      entry.hostName !== (hostName ?? null)
+    ) {
       entry.pluginVersion = pluginVersion ?? null;
       entry.paseoVersion = paseoVersion ?? null;
+      entry.hostName = hostName ?? null;
       notify();
     }
     // A daemon with no clusters yet keeps none: the client never seeds it with its own.
@@ -291,6 +297,7 @@ export function startDaemon(sync: DaemonSync, options: DaemonOptions = {}): Daem
     loaded: false,
     pluginVersion: null,
     paseoVersion: null,
+    hostName: null,
     pushTimer: null,
     pollTimer: null,
     stopped: false,
@@ -372,6 +379,45 @@ export function hostIdOfKey(key: string): string | null {
   if (local) return local[1];
   const daemon = daemonOfKey(key);
   return daemon ? hostIdOf(daemon) : null;
+}
+
+/** The names the app gives its hosts, kept so the sidebar can use them without the screen open. */
+const HOST_LABELS_KEY = `${KEY_PREFIX}:host-labels`;
+let hostLabels: Record<string, string> | null = null;
+
+function labels(): Record<string, string> {
+  if (!hostLabels) {
+    try {
+      hostLabels = JSON.parse(persistence?.read(HOST_LABELS_KEY) ?? "{}") as Record<string, string>;
+    } catch {
+      hostLabels = {};
+    }
+  }
+  return hostLabels;
+}
+
+export function setHostLabels(next: Record<string, string>): void {
+  const merged = { ...labels(), ...next };
+  if (JSON.stringify(merged) === JSON.stringify(labels())) return;
+  hostLabels = merged;
+  persistence?.write(HOST_LABELS_KEY, JSON.stringify(merged));
+  notify();
+}
+
+/** The name of the node a sidebar project lives on: the app's label, else the machine's name. */
+export function nodeLabelOfKey(key: string): string | null {
+  const hostId = hostIdOfKey(key);
+  if (hostId && labels()[hostId]) return labels()[hostId];
+  const daemon = daemonOfKey(key) ?? (hostId ? (daemonByHost.get(hostId) ?? null) : null);
+  const entry = daemon ? entries.get(daemon) : undefined;
+  return entry?.hostName ?? hostId;
+}
+
+/** How many daemons have answered; node names only help once there is more than one. */
+export function loadedCount(): number {
+  let count = 0;
+  for (const entry of entries.values()) if (entry.loaded) count += 1;
+  return count;
 }
 
 /** One connected daemon, with the versions it reported. */
@@ -648,4 +694,5 @@ export function resetStore(): void {
   merged = null;
   nodeList = null;
   active = undefined;
+  hostLabels = null;
 }

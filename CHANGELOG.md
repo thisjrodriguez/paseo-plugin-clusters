@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+- With more than one node connected, every project in the sidebar carries a small tag with the
+  name of the Paseo it lives on, and so does every project in the Clusters screen.
+- Daemons report their machine's name, used when the app has not named the host yet.
+
 ## 0.5.0
 
 - A cluster can show an uploaded photo instead of its icon, in the sidebar and the Clusters screen.

@@ -47,6 +47,8 @@ export const readState = defineRpc({
     paseoVersion: z.string().nullable().optional(),
     /** The app's id for this daemon's host. Sent from 0.5.0 on, so one screen can name every node. */
     hostId: z.string().nullable().optional(),
+    /** The machine's name, the label a host gets by default. Sent from 0.5.1 on. */
+    hostName: z.string().optional(),
   }),
 });
 
