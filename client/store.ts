@@ -413,6 +413,14 @@ export function nodeLabelOfKey(key: string): string | null {
   return entry?.hostName ?? hostId;
 }
 
+/** The name of a daemon's node: the app's label for its host, else the machine's name. */
+export function nodeLabelOf(daemon: Daemon): string | null {
+  const entry = entries.get(daemon);
+  if (!entry) return null;
+  const hostId = hostIdOf(entry);
+  return (hostId && labels()[hostId]) || entry.hostName || hostId;
+}
+
 /** How many daemons have answered; node names only help once there is more than one. */
 export function loadedCount(): number {
   let count = 0;

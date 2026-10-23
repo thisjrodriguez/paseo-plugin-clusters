@@ -473,7 +473,6 @@ function applyFilter(): void {
         : "";
     if (group.style.order !== order) group.style.order = order;
     placeHideButton(group, key, recent);
-    placeNodeTag(group, key);
   }
   updateRings();
 }
@@ -507,41 +506,6 @@ function trailingActions(group: El): El | null {
   }
   // The kebab sits in a wrapper (which hides it) inside the actions row.
   return kebab?.parentElement?.parentElement ?? plus?.parentElement ?? null;
-}
-
-const NODE_ATTR = "data-paseo-clusters-node";
-
-/** With several nodes connected, a small tag after the project's name says which one it lives on. */
-function placeNodeTag(group: El, key: string): void {
-  const row = group.querySelector(`[data-testid^="${ROW_PREFIX}"]`) ?? group;
-  const existing = row.querySelector(`[${NODE_ATTR}]`);
-  const label = store.loadedCount() > 1 ? store.nodeLabelOfKey(key) : null;
-  if (!label) {
-    existing?.remove();
-    return;
-  }
-  if (existing?.textContent === label) return;
-  existing?.remove();
-  const main = row.children[0];
-  if (!main) return;
-  const tag = document.createElement("span");
-  tag.setAttribute(NODE_ATTR, key);
-  tag.textContent = label;
-  Object.assign(tag.style, {
-    flexShrink: "0",
-    marginLeft: "6px",
-    padding: "0 5px",
-    borderRadius: "4px",
-    border: "1px solid rgba(113, 113, 122, 0.35)",
-    color: "#71717a",
-    fontSize: "10px",
-    lineHeight: "16px",
-    maxWidth: "90px",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  });
-  main.appendChild(tag);
 }
 
 /** In Recents, a button next to "+" and "⋯" that hides the project until it is used again. */
@@ -971,6 +935,12 @@ export function nodeLabelOfKey(key: string): string | null {
   const other = otherOwner();
   if (other) return other.nodeLabelOfKey(key);
   return store.nodeLabelOfKey(key);
+}
+
+export function nodeLabelOf(daemon: Daemon): string | null {
+  const other = otherOwner();
+  if (other) return other.nodeLabelOf(daemon);
+  return store.nodeLabelOf(daemon);
 }
 
 function clusterCircleAt(x: number, y: number): El | null {
@@ -1477,7 +1447,6 @@ function runSidebar(): () => void {
     if (preferences) Object.assign(preferences.style, { visibility: "", pointerEvents: "" });
     dropLine?.remove();
     for (const button of Array.from(document.querySelectorAll(`[${HIDE_ATTR}]`))) button.remove();
-    for (const tag of Array.from(document.querySelectorAll(`[${NODE_ATTR}]`))) tag.remove();
     document.querySelector(`#${HIDE_STYLE_ID}`)?.remove();
     for (const { group } of projectGroups()) {
       Object.assign(group.style, { display: "", order: "" });
@@ -1520,6 +1489,7 @@ interface Owner {
   claimScreen: typeof claimScreen;
   setHostLabels: typeof setHostLabels;
   nodeLabelOfKey: typeof nodeLabelOfKey;
+  nodeLabelOf: typeof nodeLabelOf;
 }
 
 /**
@@ -1527,7 +1497,7 @@ interface Owner {
  * the same page. An older copy owning the slot cannot answer what a newer one asks of it, so they
  * take separate slots and each runs on its own until every daemon is on the same version.
  */
-const OWNER_KEY = "__paseoClustersOwner:7";
+const OWNER_KEY = "__paseoClustersOwner:8";
 let self: Owner | null = null;
 
 function ownerSlot(): { [OWNER_KEY]?: Owner } {
@@ -1561,6 +1531,7 @@ function otherOwner(): Owner | null {
     hostIdOfKey,
     setHostLabels,
     nodeLabelOfKey,
+    nodeLabelOf,
     startSidebarClusters,
     claimScreen,
   };

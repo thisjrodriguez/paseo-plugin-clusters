@@ -10,11 +10,10 @@ import {
   clusterIcon,
   createCluster,
   DEFAULT_RECENT_HOURS,
-  deleteCluster,
   focusDaemon,
   getActive,
   getState,
-  hostIdOf,
+  nodeLabelOf,
   nodeLabelOfKey,
   setHostLabels,
   isWeb,
@@ -29,7 +28,6 @@ import {
   MIN_RECENT_HOURS,
   subscribe,
   t,
-  updateCluster,
 } from "./web";
 import { ClusterForm, type ClusterDraft } from "./cluster-form";
 
@@ -171,12 +169,33 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
   const clusterOf = new Map<string, MergedCluster>();
   for (const cl of clusters) for (const key of cl.projects) clusterOf.set(key, cl);
 
-  const current = clusters.find((cl) => cl.id === tab) ?? null;
+  // One tab per daemon's cluster: clusters with the same name on two nodes are two tabs, each
+  // named with its node, while the sidebar circles still show them as one.
+  const multiNode = connected.length > 1;
+  const tabs = clusters.flatMap((cl) =>
+    cl.members.map((m) => {
+      const own = getState(m.daemon).clusters.find((c) => c.id === m.id);
+      return {
+        id: `${cl.id}@${m.id}`,
+        merged: cl,
+        daemon: m.daemon,
+        own: own ?? { ...cl, id: m.id, projects: [] },
+        node: nodeLabelOf(m.daemon),
+      };
+    }),
+  );
+  // A merged id (from the bar, or a cluster just created) opens that cluster on this node first.
+  const currentTab =
+    tabs.find((tb) => tb.id === tab) ??
+    tabs.find((tb) => tb.merged.id === tab && tb.daemon === daemon) ??
+    tabs.find((tb) => tb.merged.id === tab) ??
+    null;
+  const current = currentTab?.own ?? null;
   const needle = query.trim().toLowerCase();
   const matches = (p: SidebarProject) =>
     !needle || p.label.toLowerCase().includes(needle) || p.key.toLowerCase().includes(needle);
   const visible = projects.filter(matches);
-  const inCurrent = current ? visible.filter((p) => clusterOf.get(p.key)?.id === current.id) : [];
+  const inCurrent = current ? visible.filter((p) => current.projects.includes(p.key)) : [];
   const unassigned = visible.filter((p) => !clusterOf.has(p.key));
   const assigned = visible.filter((p) => clusterOf.has(p.key));
   const unassignedCount = projects.filter((p) => !clusterOf.has(p.key)).length;
@@ -187,10 +206,22 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     if (id) setTab(id);
   };
 
+  /** Edits apply to the selected node's cluster only; its namesakes on other nodes stay. */
+  const editOwn = (patch: Partial<ClusterDraft> | null) => {
+    if (!currentTab) return;
+    const owner = getState(currentTab.daemon);
+    setState(currentTab.daemon, {
+      ...owner,
+      clusters: patch
+        ? owner.clusters.map((c) => (c.id === currentTab.own.id ? { ...c, ...patch } : c))
+        : owner.clusters.filter((c) => c.id !== currentTab.own.id),
+    });
+  };
+
   const remove = () => {
     if (!current) return;
     setTab(ALL_TAB);
-    deleteCluster(current.id);
+    editOwn(null);
   };
 
   const hours = Math.min(MAX_RECENT_HOURS, Math.max(MIN_RECENT_HOURS, Math.round(state.recentHours ?? DEFAULT_RECENT_HOURS)));
@@ -219,8 +250,16 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
     </Pressable>
   );
 
-  const tabButton = (id: string, label: string, color: string | null, count: number, icon?: string, image?: string) => {
-    const selected = tab === id;
+  const tabButton = (
+    id: string,
+    label: string,
+    color: string | null,
+    count: number,
+    icon?: string,
+    image?: string,
+    node?: string | null,
+  ) => {
+    const selected = currentTab ? currentTab.id === id : tab === id;
     return (
       <Pressable
         key={id}
@@ -259,6 +298,14 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
           </View>
         ) : null}
         <Text style={styles.text}>{label}</Text>
+        {node ? (
+          <Text
+            numberOfLines={1}
+            style={{ fontSize: 10, color: c.foregroundMuted, borderWidth: 1, borderColor: c.border, borderRadius: 4, paddingHorizontal: 4 }}
+          >
+            {node}
+          </Text>
+        ) : null}
         <Text style={styles.muted}>{count}</Text>
       </Pressable>
     );
@@ -377,9 +424,9 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
           onCancel={() => setForm(null)}
           onSubmit={(draft) => {
             if (!editing) return create(draft);
-            updateCluster(editing.id, draft);
-            // A rename moves the cluster to its new name, which may join another one.
-            setTab(mergedIdOf(draft.name));
+            editOwn(draft);
+            // A rename may move it under another name; keep it selected there.
+            setTab(`${mergedIdOf(draft.name)}@${editing.id}`);
             setForm(null);
           }}
         />
@@ -476,7 +523,17 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
         <View style={[styles.rowWrap, { flex: 1 }]}>
           {tabButton(ALL_TAB, strings.allTab, null, projects.length)}
           {tabButton(UNASSIGNED_TAB, strings.noCluster, null, unassignedCount)}
-          {clusters.map((cl) => tabButton(cl.id, cl.name, cl.color, cl.projects.length, clusterIcon(cl), cl.image))}
+          {tabs.map((tb) =>
+            tabButton(
+              tb.id,
+              tb.own.name,
+              tb.own.color,
+              tb.own.projects.length,
+              clusterIcon(tb.own),
+              tb.own.image,
+              multiNode ? tb.node : null,
+            ),
+          )}
         </View>
         <Pressable accessibilityRole="button" style={styles.button} onPress={() => setForm("create")}>
           <Text style={styles.buttonText}>{strings.newCluster}</Text>
@@ -505,11 +562,7 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
           <View style={[styles.rowWrap, { justifyContent: "space-between", marginTop: 4 }]}>
             <View style={{ gap: 2 }}>
               <Text style={styles.title}>{current.name}</Text>
-              <Text style={styles.muted}>
-                {strings.onNodes(
-                  Array.from(new Set(current.members.map((m) => hostLabel(hostIdOf(m.daemon)) ?? "?"))).join(", "),
-                )}
-              </Text>
+              {currentTab?.node ? <Text style={styles.muted}>{strings.onNodes(currentTab.node)}</Text> : null}
             </View>
             <View style={styles.rowWrap}>
               <Pressable accessibilityRole="button" style={styles.ghost} onPress={() => setForm("edit")}>

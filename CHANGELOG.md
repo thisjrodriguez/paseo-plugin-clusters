@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.2
+
+- The Clusters screen shows one tab per cluster on each node: two nodes with a "Personal" each
+  show two tabs, each tagged with its node. Editing or deleting a tab changes that node's cluster
+  only. The sidebar circles still show namesakes as one.
+- The node tag is gone from the sidebar; it stays in the Clusters screen.
+
 ## 0.5.1
 
 - With more than one node connected, every project in the sidebar carries a small tag with the
