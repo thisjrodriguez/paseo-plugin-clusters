@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.4
+
+- Creating a cluster with more than one node connected asks which node stores it.
+
 ## 0.5.3
 
 - Clusters are no longer merged by name. Every cluster is shown on its own, in the sidebar bar and

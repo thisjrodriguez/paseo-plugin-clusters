@@ -21,6 +21,13 @@ export interface ClusterDraft {
   icon: string;
   color: string;
   image: string | undefined;
+  /** The node picked to store a new cluster; absent when editing. */
+  node?: string;
+}
+
+export interface NodeOption {
+  key: string;
+  label: string;
 }
 
 interface Props {
@@ -30,10 +37,14 @@ interface Props {
   submitLabel: string;
   onSubmit(draft: ClusterDraft): void;
   onCancel(): void;
+  /** Offered when creating with more than one node connected. */
+  nodes?: NodeOption[];
+  initialNode?: string;
 }
 
-export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCancel }: Props) {
+export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCancel, nodes, initialNode }: Props) {
   const [name, setName] = useState(initial.name);
+  const [node, setNode] = useState(initialNode ?? nodes?.[0]?.key);
   const [icon, setIcon] = useState(initial.icon ?? "");
   const [color, setColor] = useState(initial.color);
   const [hex, setHex] = useState(initial.color);
@@ -76,7 +87,7 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
   const preview = clusterIcon({ name: trimmedName || "?", icon });
   const submit = () => {
     if (!trimmedName) return;
-    onSubmit({ name: trimmedName, icon: icon.trim(), color, image });
+    onSubmit({ name: trimmedName, icon: icon.trim(), color, image, node: nodes?.length ? node : undefined });
   };
   const upload = async () => {
     const picked = await pickImage();
@@ -106,6 +117,35 @@ export function ClusterForm({ theme, initial, title, submitLabel, onSubmit, onCa
         </View>
         <Text style={{ color: c.foreground, fontSize: 20, fontWeight: "600" }}>{title}</Text>
       </View>
+
+      {nodes && nodes.length > 1 ? (
+        <View style={{ gap: 6 }}>
+          <Text style={styles.label}>{strings.nodeField}</Text>
+          <View style={styles.wrap}>
+            {nodes.map((option) => {
+              const selected = option.key === node;
+              return (
+                <Pressable
+                  key={option.key}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  onPress={() => setNode(option.key)}
+                  style={{
+                    paddingVertical: 6,
+                    paddingHorizontal: 12,
+                    borderRadius: 6,
+                    borderWidth: 1,
+                    borderColor: selected ? c.foreground : c.border,
+                    backgroundColor: selected ? c.surface2 : "transparent",
+                  }}
+                >
+                  <Text style={styles.text}>{option.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
 
       <View style={{ gap: 6 }}>
         <Text style={styles.label}>{strings.name}</Text>

@@ -52,6 +52,7 @@ const en = {
   openWorkspace: (name: string) => `Open ${name}`,
   mobileNotice: "The sidebar circles are desktop only. Your clusters and their workspaces are listed here.",
   nodeHeader: "Node",
+  nodeField: "NODE · where the cluster is stored",
   paseoOutdated: (latest: string) => `Outdated: another node runs Paseo ${latest}.`,
   pluginOutdated: (latest: string, command: string) => `Outdated: the newest is ${latest}. Run on this node: ${command}`,
   onNodes: (names: string) => `On ${names}`,
@@ -110,6 +111,7 @@ const es: typeof en = {
   mobileNotice:
     "Los círculos de la barra lateral solo existen en el escritorio. Aquí tienes tus clusters y sus workspaces.",
   nodeHeader: "Nodo",
+  nodeField: "NODO · dónde se guarda el cluster",
   paseoOutdated: (latest) => `Desactualizado: otro nodo tiene Paseo ${latest}.`,
   pluginOutdated: (latest, command) => `Desactualizado: la última es ${latest}. Ejecuta en este nodo: ${command}`,
   onNodes: (names) => `En ${names}`,

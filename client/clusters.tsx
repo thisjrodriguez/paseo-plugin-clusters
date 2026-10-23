@@ -198,9 +198,13 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
   const assigned = visible.filter((p) => clusterOf.has(p.key));
   const unassignedCount = projects.filter((p) => !clusterOf.has(p.key)).length;
 
+  const nodeOptions = connected.map((n, i) => ({ key: String(i), label: nodeLabelOf(n.daemon) ?? "?", daemon: n.daemon }));
+
   const create = (draft: ClusterDraft) => {
     setForm(null);
-    const id = createCluster(daemon, draft);
+    const { node, ...cluster } = draft;
+    const target = nodeOptions.find((o) => o.key === node)?.daemon ?? daemon;
+    const id = createCluster(target, cluster);
     if (id) setTab(id);
   };
 
@@ -424,9 +428,12 @@ export function ClustersSurface({ theme, layout, host, navigation, daemon }: Clu
           submitLabel={editing ? strings.save : strings.create}
           initial={editing ?? { name: "", color: COLORS[clusters.length % COLORS.length] }}
           onCancel={() => setForm(null)}
+          nodes={editing ? undefined : nodeOptions}
+          initialNode={nodeOptions.find((o) => o.daemon === daemon)?.key}
           onSubmit={(draft) => {
             if (!editing) return create(draft);
-            editOwn(draft);
+            const { node: _node, ...patch } = draft;
+            editOwn(patch);
             setForm(null);
           }}
         />
