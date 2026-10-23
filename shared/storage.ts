@@ -11,6 +11,8 @@ export const clusterSchema = z.object({
   icon: z.string().optional(),
   /** An uploaded picture as a small data URL; shown instead of the icon. */
   image: z.string().max(MAX_IMAGE_LENGTH).optional(),
+  /** Place in the bar among the clusters of every node, lowest first. Sent from 0.5.6 on. */
+  order: z.number().optional(),
   projects: z.array(z.string()),
 });
 

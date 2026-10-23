@@ -16,6 +16,7 @@ import {
   deleteCluster,
   mergedClusters,
   moveProject,
+  reorderClusters,
   pull,
   resetStore,
   setPersistence,
@@ -291,4 +292,23 @@ test("a new cluster is created on its daemon even when the name exists elsewhere
   const id = createCluster(b, { name: "Labs", color: "#999" });
   assert.equal(mergedClusters().length, 2);
   assert.ok(id?.startsWith("work:"));
+});
+
+test("clusters of different nodes can be interleaved in the bar", async () => {
+  setPersistence(null);
+  const home = fakeDaemon("home", {
+    clusters: [
+      { id: "a", name: "A", color: "#111", projects: [] },
+      { id: "b", name: "B", color: "#111", projects: [] },
+    ],
+    revision: 1,
+  });
+  const work = fakeDaemon("work", { clusters: [{ id: "c", name: "C", color: "#222", projects: [] }], revision: 1 });
+  startDaemon(home.sync, { pollMs: 0 });
+  startDaemon(work.sync, { pollMs: 0 });
+  await settle();
+
+  reorderClusters(["home:a", "work:c", "home:b"]);
+
+  assert.deepEqual(mergedClusters().map((c) => c.name), ["A", "C", "B"]);
 });

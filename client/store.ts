@@ -20,6 +20,8 @@ export interface Cluster {
   icon?: string;
   /** An uploaded picture as a data URL; shown instead of the icon. */
   image?: string;
+  /** Place in the bar among the clusters of every node, lowest first; unset ones go last. */
+  order?: number;
   projects: string[];
 }
 
@@ -549,6 +551,8 @@ function clusterKeyOf(entry: Entry, cluster: Cluster): string {
   return `${entry.serverId ?? "?"}:${cluster.id}`;
 }
 
+const ORDER_STEP = 1000;
+
 function newClusterId(): string {
   return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
@@ -562,7 +566,7 @@ function orderedEntries(): Entry[] {
 /** Every connected daemon's clusters, each on its own. */
 export function mergedClusters(): MergedCluster[] {
   if (merged) return merged;
-  merged = orderedEntries()
+  const all = orderedEntries()
     .filter((entry) => entry.serverId)
     .flatMap((entry) =>
       entry.state.clusters.map((cluster) => ({
@@ -571,6 +575,11 @@ export function mergedClusters(): MergedCluster[] {
         members: [{ daemon: entry as Daemon, id: cluster.id }],
       })),
     );
+  // Clusters of different nodes interleave by their shared order; unordered ones keep their place
+  // after the ordered ones.
+  const place = (c: MergedCluster, i: number) => c.order ?? Number.MAX_SAFE_INTEGER / 2 + i;
+  const placed = all.map((c, i) => ({ c, at: place(c, i) }));
+  merged = placed.sort((a, b) => a.at - b.at).map(({ c }) => c);
   return merged;
 }
 
@@ -612,7 +621,8 @@ function editClusters(entry: Entry, edit: (clusters: Cluster[]) => Cluster[]): v
 export function createCluster(daemon: Daemon, draft: Pick<Cluster, "name" | "color" | "icon" | "image">): string | null {
   const entry = entries.get(daemon);
   if (!entry) return null;
-  const cluster = { id: newClusterId(), ...draft, projects: [] };
+  const last = Math.max(-ORDER_STEP, ...mergedClusters().map((c) => c.order ?? -ORDER_STEP));
+  const cluster = { id: newClusterId(), ...draft, projects: [], order: last + ORDER_STEP };
   editClusters(entry, (clusters) => [...clusters, cluster]);
   return clusterKeyOf(entry, cluster);
 }
@@ -658,7 +668,10 @@ export function reorderClusters(ids: readonly string[]): void {
       const i = ids.indexOf(clusterKeyOf(entry, c));
       return i === -1 ? ids.length : i;
     };
-    editClusters(entry, (clusters) => [...clusters].sort((a, b) => rank(a) - rank(b)));
+    // Each node stores the shared place of its own clusters, so every app interleaves them alike.
+    editClusters(entry, (clusters) =>
+      [...clusters].sort((a, b) => rank(a) - rank(b)).map((c) => ({ ...c, order: rank(c) * ORDER_STEP })),
+    );
   }
 }
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.6
+
+- Clusters of different nodes can be interleaved in the bar. Dragging a circle stores a shared
+  place on every cluster, so all your apps show the same order. Nodes still on 0.5.5 or older
+  ignore it and keep listing theirs together.
+
 ## 0.5.5
 
 - Projects whose workspaces are all archived are left out of the Clusters screen and of the
