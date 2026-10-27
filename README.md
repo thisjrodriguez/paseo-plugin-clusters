@@ -16,7 +16,8 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 ## What it does
 
 - **Circles in the sidebar.** A row above "New workspace". Selecting a cluster filters the native
-  list down to its projects.
+  list down to its projects. The row is anchored to the "New workspace" button, so it only shows
+  while that button is visible in the sidebar; if you hid it, turn it back on to see the circles.
 - **Recents.** Projects used recently (24 hours by default, adjustable from 1 to 48 in the Clusters
   screen). A project enters at the top once, then keeps its place until you drag it elsewhere, and
   drops out once that time passes without use — use being your last message to one of its
@@ -49,6 +50,8 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
   Android. On mobile the Clusters screen still lists your clusters and their workspaces.
 - The plugin relies on the `data-testid` attributes of Paseo's sidebar. They are stable, but a Paseo
   update may change them; open an issue if something stops showing up.
+- The circles need the "New workspace" button in the sidebar. With it hidden, the bar does not
+  appear.
 
 ## Development
 

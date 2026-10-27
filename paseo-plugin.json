@@ -1,13 +1,13 @@
 {
   "id": "paseo-clusters",
+  "name": "Clusters",
+  "description": "Groups your projects into clusters shown as circles above the sidebar workspace list.",
+  "translations": {
+    "zh-CN": { "name": "项目集群", "description": "将项目分组为集群，以圆形图标显示在侧边栏工作区列表上方。" }
+  },
+  "media": ["images/sidebar.png"],
   "requirements": {
     "paseo": ">=0.8.0"
   },
-  "build": [
-    [
-      "npm",
-      "ci",
-      "--omit=dev"
-    ]
-  ]
+  "build": [["npm", "ci", "--omit=dev", "--ignore-scripts"]]
 }

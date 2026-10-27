@@ -16,7 +16,9 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
 ## Qué hace
 
 - **Círculos en la barra lateral.** Una fila encima de «Nuevo espacio de trabajo». Al pulsar un
-  cluster, la lista nativa muestra solo sus proyectos.
+  cluster, la lista nativa muestra solo sus proyectos. La fila se ancla al botón «Nuevo espacio de
+  trabajo», así que solo aparece si ese botón está visible en la barra lateral; si lo ocultaste,
+  vuelve a activarlo para ver los círculos.
 - **⚡ Recientes.** Los proyectos usados recientemente (24 horas por defecto, ajustable de 1 a 48
   en la pantalla Clusters). Entran arriba la primera vez, después mantienen su sitio y los
   reordenas tú. Cuando pasa ese tiempo sin usarlos, desaparecen; usarlos es escribirle a alguna
@@ -48,6 +50,8 @@ paseo plugin install github:thisjrodriguez/paseo-plugin-clusters
   Android no aparecen. En el móvil funciona la pantalla Clusters, con tus clusters y sus workspaces.
 - El plugin se apoya en los atributos `data-testid` de la barra lateral de Paseo. Son estables, pero
   una actualización de Paseo puede cambiarlos; si algo deja de verse, abre una incidencia.
+- Los círculos necesitan el botón «Nuevo espacio de trabajo» en la barra lateral. Si está oculto,
+  la barra no aparece.
 - La interfaz está en español.
 
 ## Desarrollo

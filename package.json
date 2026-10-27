@@ -1,8 +1,9 @@
 {
   "name": "@thisjrodriguez/paseo-plugin-clusters",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "files": [
     "paseo-plugin.json",
+    "OVERVIEW.md",
     "index.client.tsx",
     "index.server.ts",
     "client/",
@@ -29,7 +30,7 @@
     "typescript": "^5.9.3",
     "zod": "^4.4.3"
   },
-  "description": "Clusters de proyectos para la barra lateral de Paseo",
+  "description": "Groups your projects into clusters shown as circles above the sidebar workspace list.",
   "license": "MIT",
   "repository": {
     "type": "git",

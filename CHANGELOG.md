@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.8
+
+- The docs note that the circles need the "New workspace" button visible in the sidebar (#1).
+- Listing metadata for the paseo.sh registry: name, description, screenshot and overview.
+- The build step runs `npm ci` with `--ignore-scripts`.
+
 ## 0.5.7
 
 - A new project with no workspace yet shows again. 0.5.5 hid every project without a live
